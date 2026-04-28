@@ -720,7 +720,7 @@
         if (!response.ok) {
           let detail = `${response.status} ${response.statusText}`;
           try { const body = await response.json(); detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body); } catch { try { detail = await response.text(); } catch {} }
-          throw new Error(detail || `${response.status} ${response.statusText}`);
+          throw new Error(`${path}: ${detail || `${response.status} ${response.statusText}`}`);
         }
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) return response.json();
@@ -1486,7 +1486,7 @@
         setFlash("Spot-Fix 候选已拒绝，正式章节未改变。", "success");
       }
 
-      function withUiError(fn) { return async (event) => { try { setFlash(""); await fn(event); setConnectionState(true); } catch (error) { setConnectionState(false, error.message); setFlash(error.message || "请求失败。", "error"); } }; }
+      function withUiError(fn) { return async (event) => { try { setFlash(""); await fn(event); setConnectionState(true); } catch (error) { setFlash(error.message || "请求失败。", "error"); } }; }
 
       function bindEvents() {
         document.getElementById("project-form").addEventListener("submit", withUiError(createProject));
