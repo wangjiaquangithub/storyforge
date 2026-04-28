@@ -1,0 +1,1625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StoryForge</title>
+    <!-- StoryForge Workbench -->
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #F7F3EA;
+        --surface: #FFFDF8;
+        --surface-hover: #F0E8DA;
+        --elevated: #FFFFFF;
+        --text: #27201A;
+        --text-secondary: #6F5E4B;
+        --muted: #9A846B;
+        --line: rgba(92, 72, 48, 0.12);
+        --line-strong: rgba(92, 72, 48, 0.22);
+        --accent: #7C4D1D;
+        --danger: #B42318;
+        --ok: #16805C;
+        --warn: #B7791F;
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        opacity: 0.02;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+      }
+      button, input, select, textarea { font: inherit; }
+
+      /* Buttons */
+      button {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        padding: 8px 14px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: background 0.12s ease, color 0.12s ease;
+      }
+      button:hover { background: var(--surface-hover); color: var(--text); }
+      button.primary {
+        background: linear-gradient(135deg, #7C4D1D, #B7791F);
+        color: #fff;
+        font-weight: 500;
+      }
+      button.primary:hover { opacity: 0.92; }
+      button.ghost {
+        background: transparent;
+        border: 1px solid var(--line-strong);
+        color: var(--text-secondary);
+      }
+      button.ghost:hover { background: var(--surface-hover); color: var(--text); }
+      button.small { padding: 5px 10px; font-size: 12px; }
+      button.danger-text { background: transparent; color: var(--danger); padding: 8px 4px; }
+      button.danger-text:hover { background: transparent; color: #fca5a5; }
+      button:active { transform: scale(0.95); }
+
+      /* Form controls */
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        background: var(--elevated);
+        color: var(--text);
+        border-radius: var(--radius-sm);
+        padding: 9px 12px;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: var(--line-strong);
+        box-shadow: 0 0 0 3px rgba(124, 77, 29, 0.15);
+      }
+      input:disabled { opacity: 0.5; cursor: default; }
+      textarea { resize: vertical; min-height: 96px; }
+
+      /* App shell */
+      .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+      /* Topbar */
+      .topbar {
+        height: 56px;
+        padding: 0 24px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        background: var(--bg);
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .topbar::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 24px;
+        right: 24px;
+        height: 1px;
+        background: var(--line);
+      }
+      .topbar h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+      .subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+      .topbar-actions { display: flex; gap: 8px; align-items: center; }
+
+      /* Workspace - three columns */
+      .workspace {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr) 320px;
+        min-height: calc(100vh - 57px);
+      }
+      .panel { overflow: auto; }
+      .panel.left {
+        background: var(--surface);
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px 0;
+        gap: 8px;
+      }
+      .panel.center { background: var(--bg); }
+      .panel.right {
+        background: var(--surface);
+        border-left: 1px solid var(--line);
+      }
+      .panel-inner { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+
+      /* Nav icons */
+      .nav-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-sm);
+        color: var(--text-secondary);
+        font-size: 18px;
+        cursor: pointer;
+        transition: background 0.12s ease;
+      }
+      .nav-icon:hover { background: var(--surface-hover); }
+      .nav-icon.active { background: rgba(124, 77, 29, 0.14); color: var(--accent); }
+      .nav-icon-label { font-size: 9px; text-align: center; margin-top: 2px; color: var(--muted); }
+      .nav-item { display: flex; flex-direction: column; align-items: center; }
+
+      /* Cards */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 16px;
+      }
+      .card h2, .card h3 {
+        margin: 0 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        letter-spacing: 0.01em;
+      }
+
+      .field-grid { display: grid; gap: 12px; }
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+      /* Lists */
+      .project-list, .asset-list, .chapter-list, .task-list, .outline-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .list-item {
+        width: 100%;
+        text-align: left;
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        border: none;
+        transition: background 0.12s ease;
+      }
+      .list-item:hover { background: var(--surface-hover); }
+      .list-item.active { background: rgba(124, 77, 29, 0.10); }
+      .list-title { font-weight: 500; line-height: 1.4; font-size: 13px; }
+      .list-meta { margin-top: 4px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; }
+
+      /* Badges */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        border: none;
+        background: var(--surface);
+        color: var(--text-secondary);
+      }
+      .badge.ok { background: rgba(22, 128, 92, 0.10); color: var(--ok); }
+      .badge.warn { background: rgba(183, 121, 31, 0.12); color: var(--warn); }
+      .badge.danger { background: rgba(180, 35, 24, 0.10); color: var(--danger); }
+
+      .spot-fix-btn {
+        background: none;
+        border: 1px solid var(--muted);
+        color: var(--muted);
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: 8px;
+      }
+      .spot-fix-btn:hover {
+        border-color: var(--warn);
+        color: var(--warn);
+      }
+      .chapter-paragraph-list { display: flex; flex-direction: column; gap: 8px; }
+      .chapter-paragraph {
+        width: 100%; text-align: left; border: 1px solid var(--line); background: var(--elevated);
+        color: var(--text); border-radius: var(--radius-sm); padding: 10px 12px; line-height: 1.8;
+      }
+      .chapter-paragraph.selected { border-color: var(--accent); background: rgba(124, 77, 29, 0.08); }
+      .paragraph-index { display: inline-flex; min-width: 24px; height: 24px; justify-content: center; align-items: center; border-radius: 999px; background: rgba(124, 77, 29, 0.10); color: var(--accent); font-size: 11px; margin-right: 8px; }
+      .spot-fix-panel { display: grid; gap: 12px; margin-top: 12px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius-md); padding: 14px; }
+      .spot-fix-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .spot-fix-diff { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.6; color: var(--text-secondary); background: var(--elevated); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; max-height: 260px; overflow: auto; }
+      .paper-overlay { display:none; position:fixed; inset:0; background:rgba(247,243,234,0.86); z-index:1000; align-items:center; justify-content:center; backdrop-filter: blur(2px); }
+
+      /* Editor layout */
+      .editor-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        max-width: 900px;
+        margin: 0 auto;
+        width: 100%;
+        padding: 20px;
+      }
+      .summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+      .summary-tile {
+        padding: 16px;
+        border-radius: var(--radius-md);
+        background: var(--elevated);
+        border: 1px solid var(--line);
+        text-align: center;
+      }
+      .production-console { display: grid; gap: 14px; margin-top: 16px; }
+      .production-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .production-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .production-task-list { display: flex; flex-direction: column; gap: 6px; }
+      .production-task-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--elevated); }
+      .summary-value { font-size: 22px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+      .summary-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+
+      .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .status-line { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+      .status-line > span + span::before { content: "·"; margin-right: 12px; opacity: 0.4; }
+
+      .editor-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+      .editor-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+
+      .json-box { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; min-height: 180px; font-size: 12px; }
+      .content-box { min-height: 420px; line-height: 1.8; }
+
+      /* AI progress bar */
+      .ai-progress-bar {
+        height: 2px;
+        background: linear-gradient(90deg, #7C4D1D, #B7791F, #7C4D1D);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite linear;
+        border-radius: 1px;
+        margin-top: 4px;
+      }
+      @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+      /* Empty state */
+      .empty {
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--text-secondary);
+        border: 1px dashed var(--line);
+        border-radius: var(--radius-lg);
+        background: transparent;
+        font-size: 13px;
+      }
+
+      /* Messages */
+      .message { padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+      .message.error { background: rgba(180, 35, 24, 0.08); color: var(--danger); }
+      .message.success { background: rgba(22, 128, 92, 0.08); color: var(--ok); }
+      .audit-list, .rule-list, .foreshadowing-list, .timeline-list { display: flex; flex-direction: column; gap: 8px; }
+      .audit-row, .rule-row, .foreshadowing-row, .timeline-row { padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--elevated); }
+      .audit-row.failed { border-color: rgba(180, 35, 24, 0.28); background: rgba(180, 35, 24, 0.04); }
+      .audit-row.passed { border-color: rgba(22, 128, 92, 0.20); }
+      .audit-actions, .rule-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+      .muted { color: var(--muted); }
+      .section-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+
+      /* Progress bar */
+      .progress-bar { width: 100%; height: 3px; background: rgba(92,72,48,0.10); border-radius: 2px; overflow: hidden; margin: 4px 0; }
+      .progress-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease; }
+      .progress-bar-fill.ok { background: var(--ok); }
+      .progress-bar-fill.warn { background: var(--warn); }
+      .progress-bar-fill.danger { background: var(--danger); }
+
+      /* Outline arc separator */
+      .arc-header { font-weight: 600; font-size: 13px; color: var(--accent); padding: 10px 12px 4px; margin-top: 8px; }
+      .arc-header::before { content: ""; display: block; height: 1px; background: var(--line); margin-bottom: 8px; }
+
+      /* SSE connection indicator */
+      .sse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+      }
+      .sse-dot.ok { background: var(--ok); animation: pulse 2s infinite; }
+      .sse-dot.warn { background: var(--warn); }
+      .sse-dot.danger { background: var(--danger); }
+      @keyframes pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+      /* High contrast mode */
+      body.high-contrast {
+        --bg: #FFFFFF; --surface: #FFFFFF; --surface-hover: #EFE7D8; --elevated: #FFFFFF;
+        --muted: #4A3520; --line: #6B4E2E; --line-strong: #2A1B0F;
+        --text: #111111; --text-secondary: #332211;
+        --accent: #003D99; --danger: #9F1239; --ok: #006C4C; --warn: #8A4B00;
+      }
+      @media (prefers-contrast: more) {
+        body {
+          --bg: #FFFFFF; --surface: #FFFFFF; --surface-hover: #EFE7D8; --elevated: #FFFFFF;
+          --muted: #4A3520; --line: #6B4E2E; --line-strong: #2A1B0F;
+          --text: #111111; --text-secondary: #332211;
+          --accent: #003D99; --danger: #9F1239; --ok: #006C4C; --warn: #8A4B00;
+        }
+      }
+      @media (max-width: 1200px) {
+        .workspace { grid-template-columns: 72px minmax(0, 1fr); }
+        .panel.right { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+      }
+      @media (max-width: 840px) {
+        .workspace { grid-template-columns: 1fr; }
+        .panel.left { flex-direction: row; padding: 8px; justify-content: center; }
+        .panel { border-right: none; border-bottom: 1px solid var(--line); }
+        .panel.right { border-top: 1px solid var(--line); }
+        .summary-grid, .two-col { grid-template-columns: 1fr; }
+        .editor-layout { padding: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>StoryForge</h1>
+          <div class="subtitle">长篇网文生产工作台</div>
+        </div>
+        <div class="topbar-actions">
+          <span class="badge" id="connection-badge" aria-live="polite"><span class="sse-dot warn"></span>正在连接</span>
+          <button class="small ghost" id="contrast-toggle-btn" aria-label="切换高对比度">高对比</button>
+          <button class="small ghost" id="refresh-all-btn" aria-label="刷新全部">刷新</button>
+        </div>
+      </header>
+      <main class="workspace">
+        <!-- Nav bar (72px) -->
+        <nav class="panel left" aria-label="主导航">
+          <div class="nav-item" data-nav="projects" title="项目">
+            <div class="nav-icon active">&#9776;</div>
+            <div class="nav-icon-label">项目</div>
+          </div>
+          <div class="nav-item" data-nav="settings" title="设置">
+            <div class="nav-icon">&#9881;</div>
+            <div class="nav-icon-label">设置</div>
+          </div>
+        </nav>
+
+        <!-- Main panel -->
+        <section class="panel center">
+          <div class="editor-layout">
+            <div id="flash-message" aria-live="polite"></div>
+
+            <!-- Project creation -->
+            <section class="card" id="create-project-card">
+              <h2>创建项目</h2>
+              <form id="project-form" class="field-grid">
+                <textarea id="idea-input" placeholder="输入核心创意，例如：一个失势太子在残破灵械之城中重建王朝。" required rows="3"></textarea>
+                <input id="title-input" placeholder="项目标题（可选）" />
+                <div class="two-col">
+                  <input id="genre-input" placeholder="题材" />
+                  <input id="target-length-input" placeholder="章节数" type="number" min="0" step="1" value="24" />
+                </div>
+                <button class="primary" type="submit">创建项目</button>
+              </form>
+            </section>
+
+            <!-- Project list -->
+            <section class="card" id="project-list-card">
+              <div class="editor-header">
+                <h2>我的项目</h2>
+                <span class="badge" id="project-count-badge">0</span>
+              </div>
+              <div class="project-list" id="project-list"></div>
+            </section>
+
+            <!-- Project overview -->
+            <section class="card" id="project-overview-card" hidden>
+              <div id="project-overview">
+                <div class="editor-header">
+                  <div>
+                    <h2 id="project-title" style="font-size:18px;font-weight:600;">未选择项目</h2>
+                    <div class="status-line">
+                      <span id="project-phase">-</span>
+                      <span id="project-cursor">-</span>
+                      <span id="project-updated">-</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="toolbar" style="margin-top:16px;">
+                  <select id="branch-select" style="width:auto;"><option value="main">main</option></select>
+                  <span class="badge ok" id="branch-status-badge" aria-live="polite">当前分支 main</span>
+                  <button id="new-branch-btn" class="small ghost" aria-label="新建分支">+ 分支</button>
+                  <button id="fork-branch-btn" class="small ghost" aria-label="分叉当前分支">分叉</button>
+                  <button id="compare-branches-btn" class="small ghost" aria-label="比较分支">比较</button>
+                  <button class="primary" id="first-loop-btn" aria-label="运行首轮生成">首轮生成</button>
+                  <button id="next-chapter-btn" aria-label="下一章">下一章</button>
+                  <button id="drain-btn" aria-label="处理队列">处理队列</button>
+                  <div style="flex:1;"></div>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
+                    <span id="auto-mode-label">自动模式</span>
+                    <div id="auto-mode-toggle" style="width:40px;height:22px;background:var(--elevated);border:1px solid var(--line-strong);border-radius:11px;position:relative;cursor:pointer;transition:background 0.2s;">
+                      <div id="auto-mode-knob" style="width:18px;height:18px;background:var(--muted);border-radius:50%;position:absolute;top:1px;left:1px;transition:all 0.2s;"></div>
+                    </div>
+                  </label>
+                  <div style="flex:1;"></div>
+                  <button id="export-md-btn" class="small" aria-label="导出 Markdown">MD</button>
+                  <button id="export-text-btn" class="small" aria-label="导出 Text">TXT</button>
+                  <button id="export-qidian-btn" class="small" aria-label="导出起点">起点</button>
+                  <button id="export-jinjiang-btn" class="small" aria-label="导出晋江">晋江</button>
+                </div>
+                <div class="summary-grid" id="summary-grid" style="margin-top:20px;">
+                  <div class="summary-tile"><div class="summary-value" id="summary-total" aria-live="polite">0</div><div class="summary-label">总任务</div></div>
+                  <div class="summary-tile"><div class="summary-value" id="summary-completed" aria-live="polite">0</div><div class="summary-label">已完成</div></div>
+                  <div class="summary-tile"><div class="summary-value" id="summary-running">0</div><div class="summary-label">运行中</div></div>
+                  <div class="summary-tile"><div class="summary-value" id="summary-failed">0</div><div class="summary-label">失败</div></div>
+                  <div class="summary-tile"><div class="summary-value" id="summary-tokens">0</div><div class="summary-label">Token</div></div>
+                </div>
+                <div class="production-console" id="production-console">
+                  <div class="editor-header">
+                    <div>
+                      <h3>生产控制台</h3>
+                      <div class="production-meta">
+                        <span class="badge">分支 <strong id="production-branch">main</strong></span>
+                        <span class="badge" id="production-mode">自动模式</span>
+                        <span class="badge" id="production-current-task">当前任务：无</span>
+                        <span class="badge danger" id="production-failed-tasks">失败：0</span>
+                      </div>
+                    </div>
+                    <div class="production-actions">
+                      <button class="small primary" id="console-first-loop-btn" aria-label="生产控制台首轮生成">开始第一轮</button>
+                      <button class="small" id="console-next-chapter-btn" aria-label="生产控制台下一章">继续下一章</button>
+                      <button class="small" id="console-drain-btn" aria-label="生产控制台处理队列">处理队列</button>
+                      <button class="small ghost" id="retry-failed-btn" aria-label="重试失败任务">重试失败</button>
+                      <button class="small ghost danger-text" id="cancel-pending-btn" aria-label="取消待处理任务">取消待处理</button>
+                    </div>
+                  </div>
+                  <div class="summary-grid" id="production-summary-grid">
+                    <div class="summary-tile"><div class="summary-value" id="production-total">0</div><div class="summary-label">总任务</div></div>
+                    <div class="summary-tile"><div class="summary-value" id="production-queued">0</div><div class="summary-label">待处理</div></div>
+                    <div class="summary-tile"><div class="summary-value" id="production-running">0</div><div class="summary-label">运行中</div></div>
+                    <div class="summary-tile"><div class="summary-value" id="production-completed">0</div><div class="summary-label">已完成</div></div>
+                    <div class="summary-tile"><div class="summary-value" id="production-failed">0</div><div class="summary-label">失败</div></div>
+                  </div>
+                  <div>
+                    <div class="section-title">当前分支队列</div>
+                    <div class="production-task-list" id="production-task-list"><div class="empty">还没有任务。</div></div>
+                  </div>
+                </div>
+                <div style="margin-top:16px;padding:12px 0;"><div class="section-title">最新事件</div><div id="latest-event" class="muted">暂无事件</div></div>
+              </div>
+            </section>
+
+            <section class="card" id="branch-compare-card" hidden>
+              <div class="editor-header">
+                <h2>分支对比</h2>
+                <span class="badge" id="branch-compare-title">未比较</span>
+              </div>
+              <div class="field-grid" style="margin-top:12px;">
+                <div>
+                  <div class="section-title">章节差异</div>
+                  <div id="branch-chapter-diff" class="branch-chapter-diff empty">选择两个分支后比较章节差异。</div>
+                </div>
+                <div>
+                  <div class="section-title">审计差异</div>
+                  <div id="branch-audit-diff" class="branch-audit-diff empty">选择两个分支后比较审计差异。</div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Asset editor -->
+            <section class="card" id="asset-editor-card" hidden>
+              <div class="editor-header">
+                <div>
+                  <h2 id="editor-title" style="font-size:16px;font-weight:600;">资产编辑器</h2>
+                  <div class="editor-meta"><span class="badge" id="editor-type">-</span><span class="badge" id="editor-version">-</span><span class="badge" id="editor-source">-</span></div>
+                </div>
+                <div class="toolbar">
+                  <select id="rollback-version-select" style="width:auto;"><option value="">回滚到版本</option></select>
+                  <button id="rollback-asset-btn" aria-label="回滚到旧版本" class="small ghost">回滚</button>
+                  <button id="diff-versions-btn" aria-label="查看版本差异" class="small ghost">差异</button>
+                  <button id="delete-asset-btn" aria-label="删除资产" class="small danger-text">删除</button>
+                  <button id="save-asset-btn" aria-label="保存为新版本" class="primary">保存</button>
+                </div>
+              </div>
+              <div class="field-grid" style="margin-top:12px;">
+                <textarea id="asset-content-editor" class="content-box" placeholder="选择一个资产开始编辑"></textarea>
+                <div id="chapter-paragraphs-panel" class="chapter-paragraph-list" hidden></div>
+                <section id="spot-fix-panel" class="spot-fix-panel" hidden>
+                  <div class="section-title">Spot-Fix 段落修复</div>
+                  <div class="list-meta"><span id="spotFixSelectedParagraphs">已选段落：无</span></div>
+                  <textarea id="spotFixInlineInstruction" rows="3" placeholder="输入定点修复指令，例如：增强冲突、减少解释、保留动作节奏。"></textarea>
+                  <div class="spot-fix-actions">
+                    <button id="spotFixInlineSubmit" class="small primary" type="button">提交修复</button>
+                    <button id="spotFixRetry" class="small ghost" type="button">重新修</button>
+                    <button id="spotFixAccept" class="small ghost" type="button">接受候选</button>
+                    <button id="spotFixReject" class="small danger-text" type="button">拒绝候选</button>
+                  </div>
+                  <pre id="spotFixDiffContent" class="spot-fix-diff">选择段落并提交修复后，这里展示原段落/新段落 diff。</pre>
+                </section>
+                <div class="two-col">
+                  <select id="asset-source-editor"><option value="human">人工</option><option value="system">系统</option></select>
+                  <input id="asset-id-display" disabled placeholder="资产 ID" />
+                </div>
+                <textarea id="asset-structured-editor" class="json-box" placeholder="结构化数据 JSON"></textarea>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- Assistant panel (320px) -->
+        <aside class="panel right">
+          <div class="panel-inner">
+            <section class="card" id="asset-list-card" hidden>
+              <div class="editor-header">
+                <h2>资产</h2>
+                <span class="badge" id="asset-count-badge">0</span>
+              </div>
+              <div class="asset-list" id="asset-list"></div>
+            </section>
+            <section class="card" id="chapters-card" hidden><h2>章节导航</h2><div class="chapter-list" id="chapter-list"></div></section>
+            <section class="card" id="outline-card" hidden><h2>大纲</h2><div class="outline-list" id="outline-list"></div></section>
+            <section class="card" id="tasks-card" hidden>
+              <div class="editor-header">
+                <h2>任务队列</h2>
+                <span class="badge" id="task-queue-badge">0</span>
+              </div>
+              <div class="task-list" id="task-list"></div>
+            </section>
+            <section class="card" id="trash-card" hidden>
+              <div class="editor-header">
+                <h2>回收站</h2>
+                <span class="badge" id="trash-count-badge">0</span>
+              </div>
+              <div class="asset-list" id="trash-list"></div>
+            </section>
+            <section class="card" id="diff-card" hidden>
+              <div class="editor-header">
+                <h2>版本差异</h2>
+                <button class="small ghost" id="close-diff-btn">关闭</button>
+              </div>
+              <pre id="diff-content" style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;overflow:auto;max-height:600px;white-space:pre-wrap;word-break:break-all;line-height:1.6;color:var(--text-secondary);margin-top:8px;"></pre>
+            </section>
+            <section class="card" id="audit-card" hidden>
+              <div class="editor-header">
+                <h2>审计结果</h2>
+                <span class="badge" id="audit-status-badge">待审查</span>
+              </div>
+              <div id="audit-panel-content" class="muted">选择章节后查看质量审计。</div>
+            </section>
+            <section class="card" id="quality-experiments-card" hidden>
+              <div class="editor-header">
+                <h2>A/B 质量实验</h2>
+                <span class="badge" id="quality-experiments-count-badge">0</span>
+              </div>
+              <div id="quality-experiments-list" class="audit-list"></div>
+            </section>
+            <section class="card" id="rule-card" hidden>
+              <div class="editor-header">
+                <h2>规则管理</h2>
+                <span class="badge" id="rule-count-badge">0</span>
+              </div>
+              <form id="rule-form" class="field-grid" style="margin-bottom:12px;">
+                <input id="rule-name-input" placeholder="自定义规则名称" required />
+                <textarea id="rule-description-input" placeholder="规则描述，例如：不得出现 某个禁用词" required style="min-height:64px;"></textarea>
+                <button class="small primary" type="submit">新增规则</button>
+              </form>
+              <div id="rule-list" class="rule-list"></div>
+            </section>
+            <section class="card" id="foreshadowing-card" hidden>
+              <div class="editor-header">
+                <h2>伏笔追踪</h2>
+                <span class="badge" id="foreshadowing-count-badge">0</span>
+              </div>
+              <form id="foreshadowing-form" class="field-grid" style="margin-bottom:12px;">
+                <input id="foreshadowing-title-input" placeholder="伏笔标题" required />
+                <textarea id="foreshadowing-description-input" placeholder="伏笔描述" style="min-height:64px;"></textarea>
+                <div class="two-col">
+                  <input id="foreshadowing-introduced-input" type="number" min="1" placeholder="埋设章" required />
+                  <input id="foreshadowing-resolution-input" type="number" min="1" placeholder="预计回收章" />
+                </div>
+                <button class="small primary" type="submit">新增伏笔</button>
+              </form>
+              <div id="foreshadowing-list" class="foreshadowing-list"></div>
+            </section>
+            <section class="card" id="timeline-card" hidden>
+              <div class="editor-header">
+                <h2>时间线</h2>
+                <span class="badge" id="timeline-count-badge">0</span>
+              </div>
+              <form id="timeline-form" class="field-grid" style="margin-bottom:12px;">
+                <input id="timeline-title-input" placeholder="事件标题" required />
+                <textarea id="timeline-description-input" placeholder="事件描述" style="min-height:64px;"></textarea>
+                <div class="two-col">
+                  <input id="timeline-chapter-input" type="number" min="1" placeholder="章节" required />
+                  <input id="timeline-order-input" type="number" placeholder="顺序" />
+                </div>
+                <div class="two-col">
+                  <input id="timeline-time-input" placeholder="故事内时间" />
+                  <input id="timeline-location-input" placeholder="地点" />
+                </div>
+                <input id="timeline-characters-input" placeholder="角色，逗号分隔" />
+                <button class="small primary" type="submit">新增事件</button>
+              </form>
+              <div id="timeline-list" class="timeline-list"></div>
+            </section>
+            <section class="card" id="pacing-card" hidden>
+              <div class="editor-header">
+                <h2>节奏曲线</h2>
+                <span class="badge" id="pacing-count-badge">0</span>
+              </div>
+              <svg id="pacing-curve-svg" viewBox="0 0 280 120" role="img" aria-label="当前分支节奏曲线" style="width:100%;height:120px;background:var(--elevated);border:1px solid var(--line);border-radius:var(--radius-sm);"></svg>
+              <div id="pacing-curve-list" class="timeline-list" style="margin-top:10px;"></div>
+            </section>
+            <section class="card" id="style-card" hidden>
+              <h2>风格分析</h2>
+              <div id="style-profile-content" class="muted">还没有章节数据。</div>
+              <form id="style-profile-form" class="field-grid" style="margin-top:12px;">
+                <input id="style-voice-input" placeholder="叙事声音" />
+                <input id="style-strengths-input" placeholder="优势，逗号分隔" />
+                <input id="style-avoid-input" placeholder="避免项，逗号分隔" />
+                <input id="style-sensory-keywords-input" placeholder="感官关键词，逗号分隔" />
+                <input id="style-locked-fields-input" placeholder="锁定字段：voice,strengths,avoid,sensory_keywords" />
+                <button class="small primary" type="submit">保存并锁定风格</button>
+              </form>
+            </section>
+            <section class="card" id="comments-card" hidden>
+              <div class="editor-header">
+                <h2>评论</h2>
+                <select id="comment-status-filter" aria-label="评论状态过滤">
+                  <option value="open">未解决</option>
+                  <option value="resolved">已解决</option>
+                  <option value="all">全部</option>
+                </select>
+              </div>
+              <div id="comments-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;"></div>
+              <form id="comment-form" class="field-grid">
+                <input id="comment-author-input" placeholder="你的名字" />
+                <input id="current-role-input" placeholder="当前角色：author/editor/reviewer" />
+                <select id="approval-status-input" aria-label="审批状态">
+                  <option value="">审批状态</option>
+                  <option value="draft">草稿</option>
+                  <option value="reviewed">已审阅</option>
+                  <option value="approved">已批准</option>
+                  <option value="rejected">已拒绝</option>
+                </select>
+                <select id="comment-anchor-type-input" aria-label="评论锚点类型">
+                  <option value="asset">整篇资产</option>
+                  <option value="paragraph">段落</option>
+                  <option value="text">文本范围</option>
+                </select>
+                <input id="comment-paragraph-index-input" type="number" min="0" placeholder="段落序号" />
+                <input id="comment-start-offset-input" type="number" min="0" placeholder="起始字符" />
+                <input id="comment-end-offset-input" type="number" min="0" placeholder="结束字符" />
+                <textarea id="comment-content-input" placeholder="添加评论..." required style="min-height:50px;"></textarea>
+                <button class="small primary" type="submit">发表</button>
+              </form>
+            </section>
+          </div>
+        </aside>
+      </main>
+    </div>
+    <script>
+      const state = { projects: [], selectedProjectId: null, selectedProject: null, selectedBranch: "main", summary: null, productionConsole: null, latestReview: null, qualityExperiments: null, rules: [], foreshadowing: [], timeline: [], pacingCurve: null, styleProfile: null, assets: [], tasks: [], chapters: [], selectedAssetId: null, selectedSpotFixCandidateId: null, spotFixSelectedParagraphs: [], eventSource: null, refreshTimer: null, _flashTimer: null, assetVersions: [], trash: [], creatingAsset: false };
+      const els = {
+        branchStatusBadge: document.getElementById("branch-status-badge"), branchCompareCard: document.getElementById("branch-compare-card"), branchCompareTitle: document.getElementById("branch-compare-title"), branchChapterDiff: document.getElementById("branch-chapter-diff"), branchAuditDiff: document.getElementById("branch-audit-diff"), connectionBadge: document.getElementById("connection-badge"), flashMessage: document.getElementById("flash-message"), projectList: document.getElementById("project-list"), projectCountBadge: document.getElementById("project-count-badge"), assetListCard: document.getElementById("asset-list-card"), assetList: document.getElementById("asset-list"), assetCountBadge: document.getElementById("asset-count-badge"), trashCard: document.getElementById("trash-card"), trashList: document.getElementById("trash-list"), trashCountBadge: document.getElementById("trash-count-badge"), diffCard: document.getElementById("diff-card"), diffContent: document.getElementById("diff-content"), projectOverview: document.getElementById("project-overview"), projectOverviewCard: document.getElementById("project-overview-card"), projectTitle: document.getElementById("project-title"), projectPhase: document.getElementById("project-phase"), projectCursor: document.getElementById("project-cursor"), projectUpdated: document.getElementById("project-updated"), latestEvent: document.getElementById("latest-event"), summaryTotal: document.getElementById("summary-total"), summaryCompleted: document.getElementById("summary-completed"), summaryRunning: document.getElementById("summary-running"), summaryFailed: document.getElementById("summary-failed"), summaryTokens: document.getElementById("summary-tokens"), chaptersCard: document.getElementById("chapters-card"), chapterList: document.getElementById("chapter-list"), outlineCard: document.getElementById("outline-card"), outlineList: document.getElementById("outline-list"), tasksCard: document.getElementById("tasks-card"), taskList: document.getElementById("task-list"), taskQueueBadge: document.getElementById("task-queue-badge"), assetEditorCard: document.getElementById("asset-editor-card"), editorTitle: document.getElementById("editor-title"), editorType: document.getElementById("editor-type"), editorVersion: document.getElementById("editor-version"), editorSource: document.getElementById("editor-source"), assetIdDisplay: document.getElementById("asset-id-display"), assetContentEditor: document.getElementById("asset-content-editor"), assetSourceEditor: document.getElementById("asset-source-editor"), assetStructuredEditor: document.getElementById("asset-structured-editor"), rollbackVersionSelect: document.getElementById("rollback-version-select"), styleCard: document.getElementById("style-card"), styleProfileContent: document.getElementById("style-profile-content"), styleProfileForm: document.getElementById("style-profile-form"), styleVoiceInput: document.getElementById("style-voice-input"), styleStrengthsInput: document.getElementById("style-strengths-input"), styleAvoidInput: document.getElementById("style-avoid-input"), styleSensoryKeywordsInput: document.getElementById("style-sensory-keywords-input"), styleLockedFieldsInput: document.getElementById("style-locked-fields-input"), commentsCard: document.getElementById("comments-card"), commentsList: document.getElementById("comments-list"), commentForm: document.getElementById("comment-form"), commentAuthorInput: document.getElementById("comment-author-input"), currentRoleInput: document.getElementById("current-role-input"), approvalStatusInput: document.getElementById("approval-status-input"), commentStatusFilter: document.getElementById("comment-status-filter"), commentAnchorTypeInput: document.getElementById("comment-anchor-type-input"), commentParagraphIndexInput: document.getElementById("comment-paragraph-index-input"), commentStartOffsetInput: document.getElementById("comment-start-offset-input"), commentEndOffsetInput: document.getElementById("comment-end-offset-input"), commentContentInput: document.getElementById("comment-content-input"), branchSelect: document.getElementById("branch-select"), newBranchBtn: document.getElementById("new-branch-btn"), auditCard: document.getElementById("audit-card"), auditStatusBadge: document.getElementById("audit-status-badge"), auditPanelContent: document.getElementById("audit-panel-content"), qualityExperimentsCard: document.getElementById("quality-experiments-card"), qualityExperimentsCountBadge: document.getElementById("quality-experiments-count-badge"), qualityExperimentsList: document.getElementById("quality-experiments-list"), ruleCard: document.getElementById("rule-card"), ruleCountBadge: document.getElementById("rule-count-badge"), ruleList: document.getElementById("rule-list"), ruleForm: document.getElementById("rule-form"), ruleNameInput: document.getElementById("rule-name-input"), ruleDescriptionInput: document.getElementById("rule-description-input"), foreshadowingCard: document.getElementById("foreshadowing-card"), foreshadowingCountBadge: document.getElementById("foreshadowing-count-badge"), foreshadowingList: document.getElementById("foreshadowing-list"), foreshadowingForm: document.getElementById("foreshadowing-form"), foreshadowingTitleInput: document.getElementById("foreshadowing-title-input"), foreshadowingDescriptionInput: document.getElementById("foreshadowing-description-input"), foreshadowingIntroducedInput: document.getElementById("foreshadowing-introduced-input"), foreshadowingResolutionInput: document.getElementById("foreshadowing-resolution-input"), timelineCard: document.getElementById("timeline-card"), timelineCountBadge: document.getElementById("timeline-count-badge"), timelineList: document.getElementById("timeline-list"), timelineForm: document.getElementById("timeline-form"), timelineTitleInput: document.getElementById("timeline-title-input"), timelineDescriptionInput: document.getElementById("timeline-description-input"), timelineChapterInput: document.getElementById("timeline-chapter-input"), timelineOrderInput: document.getElementById("timeline-order-input"), timelineTimeInput: document.getElementById("timeline-time-input"), timelineLocationInput: document.getElementById("timeline-location-input"), timelineCharactersInput: document.getElementById("timeline-characters-input"), pacingCard: document.getElementById("pacing-card"), pacingCountBadge: document.getElementById("pacing-count-badge"), pacingCurveSvg: document.getElementById("pacing-curve-svg"), pacingCurveList: document.getElementById("pacing-curve-list")
+      };
+      const ASSET_TYPE_LABELS = { brief: "项目概要", world: "世界观", characters: "角色卡", rules: "规则集", timeline: "时间线", outline: "大纲", chapter_summary: "章节摘要", chapter: "章节", review_note: "审查意见", continuity_note: "连续性记录" };
+      const TASK_TYPE_LABELS = { brief_generation: "Brief 生成", asset_bootstrap: "资产初始化", outline_generation: "大纲生成", chapter_generation: "章节生成", chapter_review: "章节审查", spot_fix: "定点修复", export: "导出" };
+      const TASK_STATUS_LABELS = { accepted: "已接受", queued: "排队中", running: "运行中", waiting_retry: "等待重试", failed: "失败", cancelled: "已取消", completed: "已完成" };
+      const PROJECT_PHASE_LABELS = { intake: "创意录入", briefing: "概要生成", outlining: "大纲生成", drafting: "章节撰写", review: "审查修改", publishing: "发布准备" };
+
+      async function api(path, options = {}) {
+        const response = await fetch(path, { headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+        if (!response.ok) {
+          let detail = `${response.status} ${response.statusText}`;
+          try { const body = await response.json(); detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body); } catch { try { detail = await response.text(); } catch {} }
+          throw new Error(detail || `${response.status} ${response.statusText}`);
+        }
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) return response.json();
+        return response.text();
+      }
+
+      function setFlash(message = "", type = "") {
+        if (state._flashTimer) { clearTimeout(state._flashTimer); state._flashTimer = null; }
+        if (!message) { els.flashMessage.innerHTML = ""; return; }
+        els.flashMessage.innerHTML = `<div class="message ${type}">${escapeHtml(message)}</div>`;
+        if (type === "success") { state._flashTimer = setTimeout(() => { els.flashMessage.innerHTML = ""; }, 3000); }
+      }
+
+      function escapeHtml(value) { return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+      function t(map, key, fallback) { return map[key] || fallback || key; }
+      function formatTime(value) { if (!value) return "-"; const date = new Date(value); if (Number.isNaN(date.getTime())) return String(value); return date.toLocaleString(); }
+      function latestAssetByType(assetType) { return [...state.assets].filter((asset) => asset.asset_type === assetType).sort((a, b) => (b.version || 0) - (a.version || 0))[0]; }
+
+      function renderProjects() {
+        els.projectCountBadge.textContent = `${state.projects.length}`;
+        if (!state.projects.length) { els.projectList.innerHTML = '<div class="empty">先创建一个项目，输入一句核心创意。</div>'; return; }
+        els.projectList.innerHTML = state.projects.map((project) => {
+          const active = project.project_id === state.selectedProjectId ? "active" : "";
+          const title = project.title || project.idea.slice(0, 24) || project.project_id;
+          return `<button class="list-item ${active}" data-project-id="${project.project_id}"><div class="list-title">${escapeHtml(title)}</div><div class="list-meta"><span>${escapeHtml(project.genre || "未设题材")}</span><span>${t(PROJECT_PHASE_LABELS, project.current_phase, project.current_phase)}</span><span>第 ${project.latest_chapter_cursor || 0} 章</span></div></button>`;
+        }).join("");
+        els.projectList.querySelectorAll("[data-project-id]").forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.projectId)));
+      }
+
+      function assetLabel(asset) { const title = asset.structured_data?.title || asset.structured_data?.summary || t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type); return `${t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type)} · v${asset.version} · ${title}`; }
+
+      function renderAssets() {
+        const hasProject = Boolean(state.selectedProjectId);
+        els.assetListCard.hidden = !hasProject;
+        if (!hasProject) return;
+        const assets = [...state.assets].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
+        els.assetCountBadge.textContent = `${assets.length} 条`;
+        if (!assets.length) { els.assetList.innerHTML = '<div class="empty">先选择资产类型，创建第一个资产。</div>'; return; }
+        els.assetList.innerHTML = assets.map((asset) => {
+          const active = asset.asset_id === state.selectedAssetId ? "active" : "";
+          return `<button class="list-item ${active}" data-asset-id="${asset.asset_id}"><div class="list-title">${escapeHtml(assetLabel(asset))}</div><div class="list-meta"><span>${asset.source === "system" ? "系统" : "人工"}</span><span>${escapeHtml(formatTime(asset.updated_at || asset.created_at))}</span></div></button>`;
+        }).join("");
+        els.assetList.querySelectorAll("[data-asset-id]").forEach((button) => button.addEventListener("click", () => selectAsset(button.dataset.assetId)));
+      }
+
+      function renderProjectOverview() {
+        const project = state.selectedProject; const summary = state.summary; const hasProject = Boolean(project);
+        els.projectOverviewCard.hidden = !hasProject;
+        els.chaptersCard.hidden = !hasProject;
+        els.outlineCard.hidden = !hasProject;
+        els.tasksCard.hidden = !hasProject;
+        els.trashCard.hidden = !hasProject;
+        els.auditCard.hidden = !hasProject;
+        els.qualityExperimentsCard.hidden = !hasProject;
+        els.ruleCard.hidden = !hasProject;
+        els.foreshadowingCard.hidden = !hasProject;
+        els.timelineCard.hidden = !hasProject;
+        els.pacingCard.hidden = !hasProject;
+        if (!hasProject) { els.assetEditorCard.hidden = true; return; }
+        els.projectTitle.textContent = project.title || project.idea || project.project_id;
+        els.projectPhase.textContent = t(PROJECT_PHASE_LABELS, project.current_phase, project.current_phase);
+        els.projectCursor.textContent = `第 ${project.latest_chapter_cursor || 0} 章`;
+        els.projectUpdated.textContent = formatTime(project.updated_at);
+        els.branchStatusBadge.textContent = `当前分支 ${state.selectedBranch}`;
+        els.latestEvent.textContent = summary?.latest_event_message || "暂无事件";
+        els.summaryTotal.textContent = summary?.task_summary?.total ?? 0;
+        els.summaryCompleted.textContent = summary?.task_summary?.completed ?? 0;
+        els.summaryRunning.textContent = (summary?.task_summary?.running ?? 0) + (summary?.task_summary?.queued ?? 0);
+        els.summaryFailed.textContent = (summary?.task_summary?.failed ?? 0) + (summary?.task_summary?.waiting_retry ?? 0);
+        const usage = summary?.llm_usage || {};
+        const totalTokens = usage.total_tokens ?? 0;
+        els.summaryTokens.textContent = totalTokens > 0 ? (totalTokens > 1000 ? (totalTokens / 1000).toFixed(1) + "K" : totalTokens) : "0";
+        renderProductionConsole();
+      }
+
+      function renderChapters() {
+        if (!state.selectedProjectId) return;
+        if (!state.chapters.length) { els.chapterList.innerHTML = '<div class="empty">还没有章节，点击"首轮生成"开始。</div>'; return; }
+        els.chapterList.innerHTML = state.chapters.map((chapter) => {
+          const approved = chapter.review_approved === true ? '<span class="badge ok">已通过</span>' : chapter.review_approved === false ? '<span class="badge warn">已审查</span>' : '<span class="badge">待审查</span>';
+          const active = chapter.asset_id === state.selectedAssetId ? "active" : "";
+          const chNum = chapter.chapter_number;
+          const chTitle = escapeHtml(chapter.title || "(无标题)");
+          return `<button class="list-item ${active}" data-chapter-asset-id="${chapter.asset_id || ""}"><div class="list-title">第 ${chNum} 章：${chTitle}</div><div class="list-meta"><span>${escapeHtml(chapter.status || "pending")}</span>${approved}</div></button><button class="spot-fix-btn" data-chapter-asset-id="${chapter.asset_id || ""}" title="定点修复">修复</button>`;
+        }).join("");
+        els.chapterList.querySelectorAll("[data-chapter-asset-id]").forEach((button) => button.addEventListener("click", () => { const assetId = button.dataset.chapterAssetId; if (assetId) selectAsset(assetId); }));
+      }
+
+      function renderOutline() {
+        if (!state.selectedProjectId) return;
+        const outline = latestAssetByType("outline");
+        const arcs = outline?.structured_data?.arcs || [];
+        const chapters = outline?.structured_data?.chapters || [];
+        if (!chapters.length && !arcs.length) { els.outlineList.innerHTML = '<div class="empty">还没有大纲。</div>'; return; }
+        if (arcs.length > 0) {
+          els.outlineList.innerHTML = arcs.map((arc) => {
+            const arcChapters = arc.chapters || [];
+            const header = `<div class="arc-header">第 ${arc.arc_number} 卷：${escapeHtml(arc.title || "(无标题)")}</div>`;
+            const items = arcChapters.map((item) => `<div class="list-item" style="margin-left:12px;"><div class="list-title">第 ${escapeHtml(item.chapter_number)} 章：${escapeHtml(item.title || "(无标题)")}</div><div class="list-meta"><span>${escapeHtml(item.summary || "")}</span></div></div>`).join("");
+            return header + items;
+          }).join("");
+        } else {
+          els.outlineList.innerHTML = chapters.map((item) => `<div class="list-item"><div class="list-title">第 ${escapeHtml(item.chapter_number)} 章：${escapeHtml(item.title || "(无标题)")}</div><div class="list-meta"><span>${escapeHtml(item.summary || "")}</span></div></div>`).join("");
+        }
+      }
+
+      function renderTasks() {
+        if (!state.selectedProjectId) return;
+        const tasks = [...state.tasks].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 12);
+        const queuedCount = state.tasks.filter(t => t.status === "queued").length;
+        els.taskQueueBadge.textContent = `${queuedCount}`;
+        if (!tasks.length) { els.taskList.innerHTML = '<div class="empty">还没有任务，点击"首轮生成"开始。</div>'; return; }
+        els.taskList.innerHTML = tasks.map((task) => {
+          const statusClass = task.status === "completed" ? "ok" : task.status === "failed" || task.status === "waiting_retry" ? "danger" : "warn";
+          const progress = Math.round((task.progress || 0) * 100);
+          return `<div class="list-item"><div class="list-title">${t(TASK_TYPE_LABELS, task.task_type, task.task_type)}</div><div class="progress-bar"><div class="progress-bar-fill ${statusClass}" style="width:${progress}%"></div></div><div class="list-meta"><span class="badge ${statusClass}">${t(TASK_STATUS_LABELS, task.status, task.status)}</span><span>${escapeHtml(task.current_step || "-")}</span><span>${progress}%</span></div></div>`;
+        }).join("");
+      }
+
+      function renderProductionConsole() {
+        const consoleData = state.productionConsole;
+        if (!consoleData) return;
+        document.getElementById("production-branch").textContent = consoleData.branch || state.selectedBranch;
+        document.getElementById("production-mode").textContent = consoleData.auto_mode ? "自动模式" : "手动模式";
+        const summary = consoleData.task_summary || {};
+        document.getElementById("production-total").textContent = summary.total ?? 0;
+        document.getElementById("production-queued").textContent = summary.queued ?? 0;
+        document.getElementById("production-running").textContent = summary.running ?? 0;
+        document.getElementById("production-completed").textContent = summary.completed ?? 0;
+        document.getElementById("production-failed").textContent = summary.failed ?? 0;
+        document.getElementById("production-failed-tasks").textContent = `失败：${summary.failed ?? 0}`;
+        const current = (consoleData.queue || []).find((task) => task.status === "running") || (consoleData.queue || []).find((task) => task.status === "queued");
+        document.getElementById("production-current-task").textContent = `当前任务：${current ? t(TASK_TYPE_LABELS, current.task_type, current.task_type) : "无"}`;
+        const tasks = consoleData.queue || [];
+        const list = document.getElementById("production-task-list");
+        if (!tasks.length) { list.innerHTML = '<div class="empty">还没有任务。</div>'; return; }
+        list.innerHTML = tasks.map((task) => `<div class="production-task-row"><div class="list-title">${t(TASK_TYPE_LABELS, task.task_type, task.task_type)}</div><div class="list-meta"><span>${t(TASK_STATUS_LABELS, task.status, task.status)}</span><span>${escapeHtml(task.current_step || "-")}</span></div></div>`).join("");
+      }
+
+      function renderAuditPanel() {
+        if (!state.selectedProjectId) return;
+        const review = state.latestReview;
+        if (!review) { els.auditStatusBadge.className = "badge"; els.auditStatusBadge.textContent = "暂无审计"; els.auditPanelContent.innerHTML = '<div class="empty">当前分支/章节还没有审计结果。</div>'; return; }
+        const data = review.structured_data || {};
+        const approved = data.approved === true;
+        els.auditStatusBadge.className = `badge ${approved ? "ok" : "danger"}`;
+        els.auditStatusBadge.textContent = approved ? "通过" : "需修复";
+        const failedChecks = data.failed_checks || [];
+        const issues = data.issues || [];
+        const qualityDetails = data.quality_details || {};
+        const ruleAudits = data.rule_audits || [];
+        const qualityHtml = Object.entries(qualityDetails).map(([name, result]) => {
+          const passed = result?.passed === true;
+          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">质量检查：${escapeHtml(name)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(JSON.stringify(result?.details || {}))}</span></div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="quality:${escapeHtml(name)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
+        }).join("");
+        const ruleHtml = ruleAudits.map((audit) => {
+          const passed = audit.passed === true;
+          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">规则：${escapeHtml(audit.name || audit.rule_id)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(audit.layer || "")}</span>${(audit.issues || []).map((issue) => `<span>${escapeHtml(issue)}</span>`).join("")}</div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="rule:${escapeHtml(audit.name || audit.rule_id)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
+        }).join("");
+        const issuesHtml = issues.map((issue) => `<div class="audit-row failed"><div class="list-title">失败原因</div><div class="list-meta"><span>${escapeHtml(issue)}</span></div><div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="${escapeHtml(issue)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div></div>`).join("");
+        els.auditPanelContent.innerHTML = `<div class="audit-list"><div class="list-meta"><span>第 ${escapeHtml(data.chapter_number || "-")} 章</span><span>失败检查：${escapeHtml(failedChecks.join("、") || "无")}</span></div>${qualityHtml || '<div class="muted">无质量详情</div>'}${ruleHtml || '<div class="muted">无规则审计</div>'}${issuesHtml || ''}</div>`;
+      }
+
+      function renderQualityExperiments() {
+        const experiments = state.qualityExperiments?.experiments || [];
+        els.qualityExperimentsCountBadge.textContent = `${experiments.length}`;
+        if (!experiments.length) { els.qualityExperimentsList.innerHTML = '<div class="empty">当前分支还没有 A/B 质量实验数据。</div>'; return; }
+        els.qualityExperimentsList.innerHTML = experiments.map((item) => {
+          const approval = Math.round((item.approval_rate || 0) * 100);
+          const rewrite = Math.round((item.rewrite_rate || 0) * 100);
+          const failedChecks = Object.entries(item.failed_check_distribution || {}).map(([name, count]) => `${escapeHtml(name)} × ${escapeHtml(count)}`).join("、") || "无";
+          return `<div class="audit-row"><div class="list-title">${escapeHtml(item.experiment)} / ${escapeHtml(item.variant)} <span class="badge ${approval >= 80 ? "ok" : rewrite > 0 ? "warn" : ""}">通过率 ${approval}%</span></div><div class="list-meta"><span>review_count: ${escapeHtml(item.review_count)}</span><span>approval_rate: ${escapeHtml(item.approval_rate)}</span><span>rewrite_rate: ${escapeHtml(item.rewrite_rate)}</span><span>平均问题: ${escapeHtml(item.average_issue_count)}</span><span>Token: ${escapeHtml(item.total_tokens || 0)}</span></div><div class="muted">失败检查分布：${failedChecks}</div></div>`;
+        }).join("");
+      }
+
+      function renderRules() {
+        if (!state.selectedProjectId) return;
+        els.ruleCountBadge.textContent = `${state.rules.length}`;
+        if (!state.rules.length) { els.ruleList.innerHTML = '<div class="empty">还没有自定义规则。</div>'; return; }
+        const groups = { universal: "通用", genre: "题材", custom: "自定义" };
+        els.ruleList.innerHTML = state.rules.map((rule) => {
+          const isCustom = rule.layer === "custom";
+          const status = rule.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge warn">禁用</span>';
+          const actions = isCustom ? `<div class="rule-actions"><button class="small ghost" data-rule-toggle="${rule.rule_id}">${rule.enabled ? "禁用" : "启用"}</button><button class="small danger-text" data-rule-delete="${rule.rule_id}">删除</button></div>` : "";
+          return `<div class="rule-row"><div class="list-title">${escapeHtml(rule.name)} ${status}</div><div class="list-meta"><span>${groups[rule.layer] || rule.layer}</span><span>${escapeHtml(rule.description || "")}</span></div>${actions}</div>`;
+        }).join("");
+        els.ruleList.querySelectorAll("[data-rule-toggle]").forEach((btn) => btn.addEventListener("click", () => toggleRule(btn.dataset.ruleToggle)));
+        els.ruleList.querySelectorAll("[data-rule-delete]").forEach((btn) => btn.addEventListener("click", () => deleteRule(btn.dataset.ruleDelete)));
+      }
+
+      function renderForeshadowing() {
+        const items = state.foreshadowing || [];
+        els.foreshadowingCountBadge.textContent = `${items.length}`;
+        if (!items.length) { els.foreshadowingList.innerHTML = '<div class="empty">当前分支还没有伏笔。</div>'; return; }
+        els.foreshadowingList.innerHTML = items.map((item) => {
+          const statusClass = item.status === "resolved" ? "ok" : item.status === "dropped" ? "danger" : "warn";
+          return `<div class="foreshadowing-row"><div class="list-title">${escapeHtml(item.title)} <span class="badge ${statusClass}">${escapeHtml(item.status)}</span></div><div class="list-meta"><span>埋设：第 ${escapeHtml(item.introduced_chapter)} 章</span><span>预计回收：${escapeHtml(item.expected_resolution_chapter || "-")}</span></div><div class="muted">${escapeHtml(item.description || "")}</div></div>`;
+        }).join("");
+      }
+
+      function renderTimeline() {
+        const items = state.timeline || [];
+        els.timelineCountBadge.textContent = `${items.length}`;
+        if (!items.length) { els.timelineList.innerHTML = '<div class="empty">当前分支还没有时间线事件。</div>'; return; }
+        els.timelineList.innerHTML = items.map((item) => `<div class="timeline-row"><div class="list-title">第 ${escapeHtml(item.chapter_number)} 章 · ${escapeHtml(item.title)}</div><div class="list-meta"><span>${escapeHtml(item.story_time_label || "时间未定")}</span><span>${escapeHtml(item.location || "地点未定")}</span><span>顺序 ${escapeHtml(item.order_index ?? 0)}</span></div><div class="muted">${escapeHtml(item.description || "")}</div>${item.characters?.length ? `<div class="list-meta"><span>角色：${escapeHtml(item.characters.join("、"))}</span></div>` : ""}</div>`).join("");
+      }
+
+      function renderPacingCurve() {
+        const points = state.pacingCurve?.points || [];
+        els.pacingCountBadge.textContent = `${points.length}`;
+        if (!points.length) { els.pacingCurveSvg.innerHTML = ""; els.pacingCurveList.innerHTML = '<div class="empty">当前分支还没有章节节奏数据。</div>'; return; }
+        const known = points.filter((point) => point.status === "known" && typeof point.pacing_score === "number");
+        const coords = known.map((point, index) => {
+          const x = known.length === 1 ? 140 : 20 + (index * 240) / (known.length - 1);
+          const y = 100 - Math.max(0, Math.min(1, point.pacing_score)) * 80;
+          return { x, y, point };
+        });
+        const path = coords.map((coord, index) => `${index === 0 ? "M" : "L"}${coord.x},${coord.y}`).join(" ");
+        els.pacingCurveSvg.innerHTML = `${path ? `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="3"/>` : ""}${coords.map((coord) => `<circle cx="${coord.x}" cy="${coord.y}" r="4" fill="var(--accent)"><title>第 ${escapeHtml(coord.point.chapter_number)} 章：${escapeHtml(coord.point.pacing_score)}</title></circle>`).join("")}`;
+        els.pacingCurveList.innerHTML = points.map((point) => `<div class="timeline-row"><div class="list-title">第 ${escapeHtml(point.chapter_number)} 章 · ${escapeHtml(point.title || "未命名")}</div><div class="list-meta"><span>节奏：${escapeHtml(point.pacing_score ?? "未知")}</span><span>冲突：${escapeHtml(point.conflict_intensity ?? "未知")}</span><span>情绪：${escapeHtml(point.emotional_intensity ?? "未知")}</span></div></div>`).join("");
+      }
+
+      function splitCsv(value) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
+
+      async function renderStyleProfile() {
+        if (!state.selectedProjectId) { els.styleCard.hidden = true; return; }
+        try {
+          const profile = await api(`/api/projects/${state.selectedProjectId}/style-profile?branch=${encodeURIComponent(state.selectedBranch)}`);
+          state.styleProfile = profile;
+          els.styleCard.hidden = false;
+          if (!profile || Object.keys(profile).length === 0) {
+            els.styleProfileContent.innerHTML = '<div class="muted">还没有章节数据。</div>';
+            els.styleVoiceInput.value = ""; els.styleStrengthsInput.value = ""; els.styleAvoidInput.value = ""; els.styleSensoryKeywordsInput.value = ""; els.styleLockedFieldsInput.value = "";
+            return;
+          }
+          els.styleProfileContent.innerHTML = [
+            profile.voice ? `<div><strong>叙事视角：</strong>${escapeHtml(profile.voice)}</div>` : "",
+            profile.strengths?.length ? `<div><strong>优势：</strong>${escapeHtml(profile.strengths.join("、"))}</div>` : "",
+            profile.avoid?.length ? `<div><strong>避免：</strong>${escapeHtml(profile.avoid.join("、"))}</div>` : "",
+            profile.sensory_keywords?.length ? `<div><strong>感官关键词：</strong>${escapeHtml(profile.sensory_keywords.join("、"))}</div>` : "",
+            profile.locked_fields?.length ? `<div><strong>已锁定：</strong>${escapeHtml(profile.locked_fields.join("、"))}</div>` : "",
+            profile.sample_count ? `<div><strong>分析样本数：</strong>${escapeHtml(profile.sample_count)}</div>` : "",
+          ].filter(Boolean).join("");
+          els.styleVoiceInput.value = profile.voice || "";
+          els.styleStrengthsInput.value = (profile.strengths || []).join(",");
+          els.styleAvoidInput.value = (profile.avoid || []).join(",");
+          els.styleSensoryKeywordsInput.value = (profile.sensory_keywords || []).join(",");
+          els.styleLockedFieldsInput.value = (profile.locked_fields || []).join(",");
+        } catch { els.styleCard.hidden = true; }
+      }
+
+      function renderEditor(asset) {
+        els.assetEditorCard.hidden = !asset;
+        if (!asset) { els.commentsCard.hidden = true; renderChapterParagraphs(null); return; }
+        els.editorTitle.textContent = assetLabel(asset);
+        els.editorType.textContent = t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type);
+        els.editorVersion.textContent = `v${asset.version}`;
+        els.editorSource.textContent = asset.source === "system" ? "系统" : "人工";
+        els.assetIdDisplay.value = asset.asset_id;
+        els.assetContentEditor.value = asset.content || "";
+        els.assetSourceEditor.value = asset.source || "human";
+        els.assetStructuredEditor.value = JSON.stringify(asset.structured_data || {}, null, 2);
+        const versions = state.assetVersions.sort((a, b) => a.version - b.version);
+        els.rollbackVersionSelect.innerHTML = '<option value="">选择版本</option>' + versions.filter((v) => v.version !== asset.version).map((v) => `<option value="${v.version}">v${v.version} · ${escapeHtml(v.source || "human")} · ${escapeHtml(formatTime(v.updated_at || v.created_at))}</option>`).join("");
+        renderChapterParagraphs(asset);
+        renderComments(asset);
+        updateAiProgressBar(asset);
+      }
+
+      function renderChapterParagraphs(asset) {
+        const panel = document.getElementById("chapter-paragraphs-panel");
+        const fixPanel = document.getElementById("spot-fix-panel");
+        if (!asset || asset.asset_type !== "chapter") { panel.hidden = true; fixPanel.hidden = true; state.spotFixSelectedParagraphs = []; return; }
+        panel.hidden = false;
+        fixPanel.hidden = false;
+        const paragraphs = String(asset.content || "").split("\n\n");
+        panel.innerHTML = paragraphs.map((paragraph, index) => `<button type="button" class="chapter-paragraph ${state.spotFixSelectedParagraphs.includes(index) ? "selected" : ""}" data-paragraph-index="${index}"><span class="paragraph-index">${index}</span>${escapeHtml(paragraph)}</button>`).join("");
+        panel.querySelectorAll("[data-paragraph-index]").forEach((button) => button.addEventListener("click", () => toggleSpotFixParagraph(Number(button.dataset.paragraphIndex))));
+        document.getElementById("spotFixSelectedParagraphs").textContent = state.spotFixSelectedParagraphs.length ? `已选段落：${state.spotFixSelectedParagraphs.join("、")}` : "已选段落：无";
+        const candidate = state.assets.find((item) => item.asset_type === "chapter" && item.structured_data?.is_spot_fix === true && item.structured_data?.original_asset_id === asset.asset_id);
+        state.selectedSpotFixCandidateId = candidate?.asset_id || null;
+      }
+
+      function toggleSpotFixParagraph(index) {
+        if (state.spotFixSelectedParagraphs.includes(index)) state.spotFixSelectedParagraphs = state.spotFixSelectedParagraphs.filter((item) => item !== index);
+        else state.spotFixSelectedParagraphs = [...state.spotFixSelectedParagraphs, index].sort((a, b) => a - b);
+        renderChapterParagraphs(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null);
+      }
+
+      function updateAiProgressBar(asset) {
+        if (!asset) return;
+        const existingBar = document.getElementById("ai-progress-bar");
+        const runningTasks = state.tasks.filter(t => t.status === "running");
+        if (runningTasks.length > 0) {
+          if (!existingBar) {
+            const bar = document.createElement("div");
+            bar.id = "ai-progress-bar";
+            bar.className = "ai-progress-bar";
+            els.assetContentEditor.parentNode.appendChild(bar);
+          }
+        } else if (existingBar) {
+          existingBar.remove();
+        }
+      }
+
+      function renderComments(asset) {
+        els.commentsCard.hidden = false;
+        const status = els.commentStatusFilter?.value || "open";
+        const comments = (asset.comments || []).filter((comment) => status === "all" || (comment.status || "open") === status);
+        if (!comments.length) {
+          els.commentsList.innerHTML = '<div class="muted">还没有评论</div>';
+        } else {
+          els.commentsList.innerHTML = comments.map((c) => {
+            const anchor = c.anchor_type === "paragraph" && c.paragraph_index !== null && c.paragraph_index !== undefined ? `段落 ${c.paragraph_index}` : c.anchor_type === "text" ? `文本 ${c.start_offset || 0}-${c.end_offset || 0}` : "整篇资产";
+            const role = c.role ? ` · ${escapeHtml(c.role)}` : "";
+            const resolve = (c.status || "open") === "open" ? `<button class="small" type="button" data-resolve-comment-id="${escapeHtml(c.id)}">解决</button>` : '<span class="badge">已解决</span>';
+            return `<div style="padding:8px 10px;border-radius:8px;background:var(--surface);"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div style="font-size:11px;color:var(--muted);margin-bottom:3px;">${escapeHtml(c.author)}${role} · ${escapeHtml(anchor)} · ${escapeHtml(formatTime(c.created_at))}</div>${resolve}</div><div style="font-size:13px;">${escapeHtml(c.content)}</div></div>`;
+          }).join("");
+          els.commentsList.querySelectorAll("[data-resolve-comment-id]").forEach((button) => button.addEventListener("click", () => withUiError(resolveComment)(button.dataset.resolveCommentId)));
+        }
+      }
+
+      async function submitComment(event) {
+        event.preventDefault();
+        if (!state.selectedProjectId || !state.selectedAssetId) return;
+        const author = els.commentAuthorInput.value.trim() || "anonymous";
+        const content = els.commentContentInput.value.trim();
+        if (!content) { setFlash("评论内容不能为空。", "error"); return; }
+        const paragraphIndex = els.commentParagraphIndexInput.value === "" ? null : Number(els.commentParagraphIndexInput.value);
+        const startOffset = els.commentStartOffsetInput.value === "" ? null : Number(els.commentStartOffsetInput.value);
+        const endOffset = els.commentEndOffsetInput.value === "" ? null : Number(els.commentEndOffsetInput.value);
+        await api(`/api/projects/${state.selectedProjectId}/assets/${state.selectedAssetId}/comments`, { method: "POST", body: JSON.stringify({ branch: state.selectedBranch, author, content, anchor_type: els.commentAnchorTypeInput.value, paragraph_index: paragraphIndex, start_offset: startOffset, end_offset: endOffset, actor_name: author, role: els.currentRoleInput.value.trim() || "author" }) });
+        els.commentContentInput.value = "";
+        await refreshSelectedProject();
+        setFlash("评论已发表。", "success");
+      }
+
+      async function resolveComment(commentId) {
+        if (!state.selectedProjectId || !state.selectedAssetId || !commentId) return;
+        await api(`/api/projects/${state.selectedProjectId}/assets/${state.selectedAssetId}/comments/${commentId}`, { method: "PATCH", body: JSON.stringify({ branch: state.selectedBranch, status: "resolved", role: els.currentRoleInput.value.trim() || "editor" }) });
+        await refreshSelectedProject();
+        setFlash("评论已解决。", "success");
+      }
+
+      async function loadAssetVersions(assetType) {
+        if (!state.selectedProjectId || !assetType) { state.assetVersions = []; return; }
+        try { state.assetVersions = await api(`/api/projects/${state.selectedProjectId}/assets/${assetType}/versions?branch=${encodeURIComponent(state.selectedBranch)}`); } catch { state.assetVersions = []; }
+      }
+
+      async function loadTrash() {
+        if (!state.selectedProjectId) { state.trash = []; return; }
+        try { state.trash = await api(`/api/projects/${state.selectedProjectId}/assets/trash?branch=${encodeURIComponent(state.selectedBranch)}`); } catch { state.trash = []; }
+        renderTrash();
+      }
+
+      async function loadBranches() {
+        if (!state.selectedProjectId) { return; }
+        try {
+          const branches = await api(`/api/projects/${state.selectedProjectId}/branches`);
+          if (!branches.includes(state.selectedBranch)) state.selectedBranch = branches[0] || "main";
+          els.branchSelect.innerHTML = branches.map((b) => `<option value="${escapeHtml(b)}" ${b === state.selectedBranch ? "selected" : ""}>${escapeHtml(b)}</option>`).join("");
+        } catch { els.branchSelect.innerHTML = '<option value="main">main</option>'; }
+      }
+
+      async function loadLatestReview() {
+        state.latestReview = null;
+        if (!state.selectedProjectId) return;
+        const asset = state.assets.find((item) => item.asset_id === state.selectedAssetId);
+        const chapterNumber = asset?.asset_type === "chapter" ? asset.structured_data?.chapter_number : null;
+        const query = chapterNumber ? `&chapter_number=${encodeURIComponent(chapterNumber)}` : "";
+        try { state.latestReview = await api(`/api/projects/${state.selectedProjectId}/reviews/latest?branch=${encodeURIComponent(state.selectedBranch)}${query}`); } catch { state.latestReview = null; }
+      }
+
+      async function loadRules() {
+        state.rules = [];
+        if (!state.selectedProjectId) return;
+        try { state.rules = await api(`/api/projects/${state.selectedProjectId}/rules`); } catch { state.rules = []; }
+        renderRules();
+      }
+
+      async function createBranch() {
+        if (!state.selectedProjectId) return;
+        const name = prompt("输入新分支名称：");
+        if (!name || !name.trim()) return;
+        await api(`/api/projects/${state.selectedProjectId}/branches`, { method: "POST", body: JSON.stringify({ branch: name.trim() }) });
+        state.selectedBranch = name.trim();
+        await loadBranches();
+        await refreshSelectedProject();
+        setFlash(`分支 '${name.trim()}' 已创建。`, "success");
+      }
+
+      async function forkBranch() {
+        if (!state.selectedProjectId) return;
+        const target = prompt("输入分叉目标分支名称：");
+        if (!target || !target.trim()) return;
+        const start = prompt("起始章节（可留空）：") || "";
+        const end = prompt("结束章节（可留空）：") || "";
+        const payload = { target_branch: target.trim() };
+        if (start.trim()) payload.start_chapter = Number(start.trim());
+        if (end.trim()) payload.end_chapter = Number(end.trim());
+        const result = await api(`/api/projects/${state.selectedProjectId}/branches/${encodeURIComponent(state.selectedBranch)}/fork`, { method: "POST", body: JSON.stringify(payload) });
+        state.selectedBranch = result.branch;
+        await loadBranches();
+        await refreshSelectedProject();
+        setFlash(`已分叉到 ${result.branch}，复制 ${result.copied_count} 个资产。`, "success");
+      }
+
+      async function compareBranches() {
+        if (!state.selectedProjectId) return;
+        const right = prompt("输入要比较的右侧分支：", state.selectedBranch === "main" ? "alt" : "main");
+        if (!right || !right.trim()) return;
+        const data = await api(`/api/projects/${state.selectedProjectId}/branches/compare?left=${encodeURIComponent(state.selectedBranch)}&right=${encodeURIComponent(right.trim())}`);
+        els.branchCompareCard.hidden = false;
+        els.branchCompareTitle.textContent = `${data.left} ↔ ${data.right}`;
+        els.branchChapterDiff.className = "branch-chapter-diff";
+        els.branchAuditDiff.className = "branch-audit-diff";
+        els.branchChapterDiff.innerHTML = data.chapter_diffs.length ? data.chapter_diffs.map((item) => `<div class="audit-row"><div class="list-title">第 ${escapeHtml(item.chapter_number)} 章 · ${escapeHtml(item.status)}</div><div class="list-meta"><span>${escapeHtml(item.left_title || "-")}</span><span>${escapeHtml(item.right_title || "-")}</span></div></div>`).join("") : '<div class="empty">章节没有差异。</div>';
+        els.branchAuditDiff.innerHTML = data.audit_diffs.length ? data.audit_diffs.map((item) => `<div class="audit-row"><div class="list-title">第 ${escapeHtml(item.chapter_number)} 章审计 · ${escapeHtml(item.status)}</div><div class="list-meta"><span>左：${escapeHtml(item.left_approved)}</span><span>右：${escapeHtml(item.right_approved)}</span></div></div>`).join("") : '<div class="empty">审计没有差异。</div>';
+      }
+
+      async function changeBranch() {
+        state.selectedBranch = els.branchSelect.value || "main";
+        state.selectedAssetId = null;
+        await refreshSelectedProject(); startEventStream();
+      }
+
+      function renderTrash() {
+        const hasProject = Boolean(state.selectedProjectId);
+        els.trashCard.hidden = !hasProject;
+        if (!hasProject) return;
+        els.trashCountBadge.textContent = `${state.trash.length} 条`;
+        if (!state.trash.length) { els.trashList.innerHTML = '<div class="muted">回收站为空。</div>'; return; }
+        els.trashList.innerHTML = state.trash.map((asset) => {
+          return `<button class="list-item" data-trash-asset-id="${asset.asset_id}"><div class="list-title">${escapeHtml(assetLabel(asset))}</div><div class="list-meta"><span>已删除 ${escapeHtml(formatTime(asset.deleted_at))}</span><button class="small ghost" data-restore-id="${asset.asset_id}">恢复</button></div></button>`;
+        }).join("");
+        els.trashList.querySelectorAll("[data-restore-id]").forEach((btn) => btn.addEventListener("click", (e) => { e.stopPropagation(); restoreAsset(btn.dataset.restoreId); }));
+      }
+
+      async function deleteAsset() {
+        if (!state.selectedProjectId || !state.selectedAssetId) return;
+        const existing = state.assets.find((asset) => asset.asset_id === state.selectedAssetId);
+        if (!existing) return;
+        await api(`/api/projects/${state.selectedProjectId}/assets/${existing.asset_id}?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "DELETE" });
+        await refreshSelectedProject();
+        await loadTrash();
+        setFlash("资产已移入回收站。", "success");
+      }
+
+      async function restoreAsset(assetId) {
+        if (!state.selectedProjectId) return;
+        await api(`/api/projects/${state.selectedProjectId}/assets/${assetId}/restore?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST" });
+        await refreshSelectedProject();
+        await loadTrash();
+        setFlash("资产已恢复。", "success");
+      }
+
+      async function loadProjects(selectNewest = false) {
+        const projects = await api("/api/projects");
+        state.projects = [...projects].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+        if (selectNewest && state.projects[0]) state.selectedProjectId = state.projects[0].project_id;
+        if (state.selectedProjectId && !state.projects.some((project) => project.project_id === state.selectedProjectId)) state.selectedProjectId = state.projects[0]?.project_id || null;
+        renderProjects();
+      }
+
+      async function selectAsset(assetId) {
+        state.selectedAssetId = assetId;
+        const asset = state.assets.find((item) => item.asset_id === assetId);
+        renderAssets();
+        renderChapters();
+        await loadAssetVersions(asset?.asset_type);
+        renderEditor(asset || null);
+      }
+
+      async function refreshSelectedProject() {
+        if (!state.selectedProjectId) {
+          state.selectedProject = null; state.summary = null; state.assets = []; state.tasks = []; state.chapters = []; state.latestReview = null; state.qualityExperiments = null; state.rules = []; state.foreshadowing = []; state.timeline = []; state.pacingCurve = null;
+          renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(null); await renderStyleProfile();
+          return;
+        }
+        const projectId = state.selectedProjectId;
+        await loadBranches();
+        const branchQuery = `branch=${encodeURIComponent(state.selectedBranch)}`;
+        const [project, summary, assets, tasks, chapters, productionConsole, foreshadowing, timeline, pacingCurve, qualityExperiments] = await Promise.all([
+          api(`/api/projects/${projectId}`),
+          api(`/api/projects/${projectId}/summary`),
+          api(`/api/projects/${projectId}/assets?${branchQuery}`),
+          api(`/api/projects/${projectId}/tasks?${branchQuery}`),
+          api(`/api/projects/${projectId}/chapters?${branchQuery}`),
+          api(`/api/projects/${projectId}/production-console?${branchQuery}`),
+          api(`/api/projects/${projectId}/foreshadowing?${branchQuery}`),
+          api(`/api/projects/${projectId}/timeline?${branchQuery}`),
+          api(`/api/projects/${projectId}/pacing-curve?${branchQuery}`),
+          api(`/api/projects/${projectId}/quality-experiments?${branchQuery}`)
+        ]);
+        state.selectedProject = project; state.summary = summary; state.assets = assets; state.tasks = tasks; state.chapters = chapters; state.productionConsole = productionConsole; state.foreshadowing = foreshadowing.items || []; state.timeline = timeline.items || []; state.pacingCurve = pacingCurve; state.qualityExperiments = qualityExperiments;
+        const selectedExists = state.selectedAssetId && state.assets.some((asset) => asset.asset_id === state.selectedAssetId);
+        if (!selectedExists) state.selectedAssetId = state.assets[0]?.asset_id || null;
+        await loadLatestReview();
+        await loadRules();
+        renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null); await loadTrash(); await renderStyleProfile(); renderAutoModeToggle(project.auto_mode ?? true);
+      }
+
+      async function selectProject(projectId) { state.selectedProjectId = projectId; state.selectedAssetId = null; renderProjects(); await refreshSelectedProject(); startEventStream(); }
+
+      function startEventStream() {
+        stopEventStream();
+        if (!state.selectedProjectId) return;
+        state.eventSource = new EventSource(`/api/projects/${state.selectedProjectId}/events?branch=${encodeURIComponent(state.selectedBranch)}`);
+        state.eventSource.addEventListener("completed", onEventReceived);
+        state.eventSource.addEventListener("failed", onEventReceived);
+        state.eventSource.addEventListener("running", onEventReceived);
+        state.eventSource.addEventListener("queued", onEventReceived);
+        state.eventSource.addEventListener("waiting_retry", onEventReceived);
+        state.eventSource.addEventListener("asset_updated", onEventReceived);
+        state.eventSource.addEventListener("error", () => { setConnectionState(false, "SSE 连接失败"); stopEventStream(); });
+        if (state.refreshTimer) clearInterval(state.refreshTimer);
+        state.refreshTimer = window.setInterval(async () => { if (!state.selectedProjectId) return; try { await refreshSelectedProject(); } catch (error) { setConnectionState(false, error.message); } }, 30000);
+      }
+
+      async function onEventReceived() {
+        try { await refreshSelectedProject(); setConnectionState(true); } catch (error) { setConnectionState(false, error.message); }
+      }
+
+      function stopEventStream() {
+        if (state.eventSource) { state.eventSource.close(); state.eventSource = null; }
+        if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
+      }
+
+      function setConnectionState(ok, message = "") {
+        const dotClass = ok ? "ok" : "danger";
+        const text = ok ? "已连接" : `断开${message ? `：${message}` : ""}`;
+        els.connectionBadge.replaceChildren();
+        const dot = document.createElement("span");
+        dot.className = `sse-dot ${dotClass}`;
+        els.connectionBadge.append(dot, document.createTextNode(text));
+        els.connectionBadge.className = `badge ${ok ? "ok" : "danger"}`;
+      }
+
+      function parseJson(text, fieldName) { try { return text.trim() ? JSON.parse(text) : {}; } catch { throw new Error(`${fieldName} 不是合法 JSON`); } }
+
+      async function createProject(event) {
+        event.preventDefault();
+        const idea = document.getElementById("idea-input").value.trim();
+        const title = document.getElementById("title-input").value.trim();
+        const genre = document.getElementById("genre-input").value.trim();
+        const targetLength = Number(document.getElementById("target-length-input").value || 0);
+        if (!idea) { setFlash("项目创意不能为空。", "error"); return; }
+        const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ idea, title, genre, target_length: targetLength }) });
+        document.getElementById("project-form").reset();
+        document.getElementById("target-length-input").value = 24;
+        await loadProjects();
+        await selectProject(project.project_id);
+        setFlash("项目已创建。", "success");
+      }
+
+      async function saveSelectedAsset() {
+        if (!state.selectedProjectId || !state.selectedAssetId) return;
+        const existing = state.assets.find((asset) => asset.asset_id === state.selectedAssetId);
+        if (!existing) return;
+        const content = els.assetContentEditor.value;
+        const source = els.assetSourceEditor.value;
+        const structuredData = parseJson(els.assetStructuredEditor.value, "结构化数据");
+        const actorName = els.commentAuthorInput.value.trim() || "anonymous";
+        const actorId = actorName;
+        const role = els.currentRoleInput.value.trim() || "author";
+        const approvalStatus = els.approvalStatusInput.value || undefined;
+        const asset = await api(`/api/projects/${state.selectedProjectId}/assets/${existing.asset_id}`, { method: "PUT", body: JSON.stringify({ content, source, branch: state.selectedBranch, base_version: existing.version, actor_id: actorId, actor_name: actorName, role, approval_status: approvalStatus, structured_data: structuredData }) });
+        await loadProjects();
+        await refreshSelectedProject();
+        selectAsset(asset.asset_id);
+        setFlash("资产已保存为新版本。", "success");
+      }
+
+      async function rollbackAsset() {
+        if (!state.selectedProjectId || !state.selectedAssetId) return;
+        const targetVersion = Number(els.rollbackVersionSelect.value);
+        if (!targetVersion) { setFlash("请选择要回滚的版本。", "error"); return; }
+        const existing = state.assets.find((asset) => asset.asset_id === state.selectedAssetId);
+        if (!existing) return;
+        const asset = await api(`/api/projects/${state.selectedProjectId}/assets/${existing.asset_id}/rollback`, { method: "POST", body: JSON.stringify({ target_version: targetVersion, branch: state.selectedBranch }) });
+        await loadProjects();
+        await refreshSelectedProject();
+        selectAsset(asset.asset_id);
+        setFlash(`已回滚到 v${targetVersion}，新保存为 v${asset.version}。`, "success");
+      }
+
+      async function runFirstLoop() { if (!state.selectedProjectId) return; await api(`/api/projects/${state.selectedProjectId}/runs/first-loop`, { method: "POST", body: JSON.stringify({ chapter_number: 1, auto_run: true, branch: state.selectedBranch }) }); await loadProjects(); await refreshSelectedProject(); setFlash("首轮生成已执行。", "success"); }
+      async function runNextChapter() { if (!state.selectedProjectId) return; await api(`/api/projects/${state.selectedProjectId}/runs/next-chapter`, { method: "POST", body: JSON.stringify({ auto_run: true, branch: state.selectedBranch }) }); await loadProjects(); await refreshSelectedProject(); setFlash("下一章任务已执行。", "success"); }
+      async function drainQueue() { if (!state.selectedProjectId) return; const result = await api(`/api/projects/${state.selectedProjectId}/workers/drain?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST", body: JSON.stringify({}) }); await loadProjects(); await refreshSelectedProject(); setFlash(`已处理 ${result.processed_count} 个任务。`, "success"); }
+
+      async function retryFailedTasks() {
+        if (!state.selectedProjectId) return;
+        const tasks = state.tasks.filter((task) => task.branch === state.selectedBranch && (task.status === "failed" || task.status === "waiting_retry"));
+        if (!tasks.length) { setFlash("当前分支没有失败或待重试任务。", "success"); return; }
+        await Promise.all(tasks.map((task) => api(`/api/tasks/${task.task_id}/retry`, { method: "POST", body: JSON.stringify({}) })));
+        await refreshSelectedProject();
+        setFlash(`已重试 ${tasks.length} 个任务。`, "success");
+      }
+
+      async function cancelPendingTasks() {
+        if (!state.selectedProjectId) return;
+        const tasks = state.tasks.filter((task) => task.branch === state.selectedBranch && ["accepted", "queued", "waiting_retry"].includes(task.status));
+        if (!tasks.length) { setFlash("当前分支没有可取消的待处理任务。", "success"); return; }
+        await Promise.all(tasks.map((task) => api(`/api/tasks/${task.task_id}/cancel`, { method: "POST", body: JSON.stringify({}) })));
+        await refreshSelectedProject();
+        setFlash(`已取消 ${tasks.length} 个待处理任务。`, "success");
+      }
+
+      async function exportProject(format) {
+        if (!state.selectedProjectId) return;
+        const response = await fetch(`/api/projects/${state.selectedProjectId}/export`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format, branch: state.selectedBranch }) });
+        if (!response.ok) throw new Error(await response.text());
+        const blob = await response.blob();
+        const disposition = response.headers.get("content-disposition") || "";
+        const match = disposition.match(/filename="([^"]+)"/);
+        const filename = match ? match[1] : `storyforge-export.${format === "text" ? "txt" : "md"}`;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setFlash(`已导出 ${filename}。`, "success");
+      }
+
+      async function refreshAll() { await loadProjects(); await refreshSelectedProject(); setFlash("已刷新。", "success"); }
+
+      async function saveStyleProfile(event) {
+        event.preventDefault();
+        if (!state.selectedProjectId) return;
+        const body = {
+          branch: state.selectedBranch,
+          voice: els.styleVoiceInput.value.trim() || null,
+          strengths: splitCsv(els.styleStrengthsInput.value),
+          avoid: splitCsv(els.styleAvoidInput.value),
+          sensory_keywords: splitCsv(els.styleSensoryKeywordsInput.value),
+          locked_fields: splitCsv(els.styleLockedFieldsInput.value),
+        };
+        await api(`/api/projects/${state.selectedProjectId}/style-profile`, { method: "PUT", body: JSON.stringify(body) });
+        await renderStyleProfile();
+        setFlash("风格设置已保存。", "success");
+      }
+
+      async function createRule(event) {
+        event.preventDefault();
+        if (!state.selectedProjectId) return;
+        const name = els.ruleNameInput.value.trim();
+        const description = els.ruleDescriptionInput.value.trim();
+        if (!name || !description) { setFlash("规则名称和描述不能为空。", "error"); return; }
+        await api(`/api/projects/${state.selectedProjectId}/rules`, { method: "POST", body: JSON.stringify({ layer: "custom", name, description }) });
+        els.ruleForm.reset();
+        await loadRules();
+        setFlash("规则已新增。", "success");
+      }
+
+      async function toggleRule(ruleId) {
+        const rule = state.rules.find((item) => item.rule_id === ruleId);
+        if (!state.selectedProjectId || !rule) return;
+        await api(`/api/projects/${state.selectedProjectId}/rules/${ruleId}`, { method: "PATCH", body: JSON.stringify({ enabled: !rule.enabled }) });
+        await loadRules();
+      }
+
+      async function deleteRule(ruleId) {
+        if (!state.selectedProjectId || !ruleId) return;
+        await api(`/api/projects/${state.selectedProjectId}/rules/${ruleId}`, { method: "DELETE" });
+        await loadRules();
+        setFlash("规则已删除。", "success");
+      }
+
+      async function createForeshadowing(event) {
+        event.preventDefault();
+        if (!state.selectedProjectId) return;
+        const title = els.foreshadowingTitleInput.value.trim();
+        const description = els.foreshadowingDescriptionInput.value.trim();
+        const introduced = Number(els.foreshadowingIntroducedInput.value || 0);
+        const expected = Number(els.foreshadowingResolutionInput.value || 0);
+        if (!title || introduced <= 0) { setFlash("伏笔标题和埋设章不能为空。", "error"); return; }
+        await api(`/api/projects/${state.selectedProjectId}/foreshadowing`, { method: "POST", body: JSON.stringify({ branch: state.selectedBranch, title, description, introduced_chapter: introduced, expected_resolution_chapter: expected || null }) });
+        els.foreshadowingForm.reset();
+        await refreshSelectedProject();
+        setFlash("伏笔已新增。", "success");
+      }
+
+      async function createTimelineEvent(event) {
+        event.preventDefault();
+        if (!state.selectedProjectId) return;
+        const title = els.timelineTitleInput.value.trim();
+        const description = els.timelineDescriptionInput.value.trim();
+        const chapterNumber = Number(els.timelineChapterInput.value || 0);
+        const orderIndex = Number(els.timelineOrderInput.value || 0);
+        const storyTimeLabel = els.timelineTimeInput.value.trim();
+        const location = els.timelineLocationInput.value.trim();
+        const characters = els.timelineCharactersInput.value.split(",").map((item) => item.trim()).filter(Boolean);
+        if (!title || chapterNumber <= 0) { setFlash("时间线标题和章节不能为空。", "error"); return; }
+        await api(`/api/projects/${state.selectedProjectId}/timeline`, { method: "POST", body: JSON.stringify({ branch: state.selectedBranch, chapter_number: chapterNumber, title, description, story_time_label: storyTimeLabel, order_index: orderIndex, characters, location }) });
+        els.timelineForm.reset();
+        await refreshSelectedProject();
+        setFlash("时间线事件已新增。", "success");
+      }
+
+      function bindKeyboardShortcuts() {
+        document.addEventListener("keydown", (event) => {
+          const tag = event.target.tagName.toLowerCase();
+          if (tag === "input" || tag === "textarea" || tag === "select") return;
+          const isMod = event.metaKey || event.ctrlKey;
+          if (isMod && event.key === "s") { event.preventDefault(); if (state.selectedAssetId) withUiError(saveSelectedAsset)(event); return; }
+          if (isMod && event.key === "Enter") { event.preventDefault(); if (state.selectedProjectId) withUiError(runFirstLoop)(event); return; }
+          if (event.key === "n" || event.key === "N") { event.preventDefault(); if (state.selectedProjectId) withUiError(runNextChapter)(event); return; }
+          if (event.key === "d" || event.key === "D") { event.preventDefault(); if (state.selectedProjectId) withUiError(drainQueue)(event); return; }
+          if (event.key === "r" || event.key === "R") { event.preventDefault(); withUiError(refreshAll)(event); return; }
+        });
+      }
+
+      async function showDiff() {
+        if (!state.selectedProjectId) return;
+        const asset = state.assets.find((a) => a.asset_id === state.selectedAssetId);
+        if (!asset) return;
+        try {
+          const response = await fetch(`/api/projects/${state.selectedProjectId}/assets/${asset.asset_type}/diff?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST" });
+          if (!response.ok) { setFlash("需要至少 2 个版本才能查看差异。", "error"); return; }
+          const text = await response.text();
+          els.diffContent.textContent = text;
+          els.diffCard.hidden = false;
+        } catch (error) { setFlash("无法加载差异。", "error"); }
+      }
+
+      async function submitInlineSpotFix() {
+        if (!state.selectedProjectId || !state.selectedAssetId) return;
+        const instruction = document.getElementById("spotFixInlineInstruction").value.trim();
+        if (!state.spotFixSelectedParagraphs.length) { setFlash("请先选择需要修复的段落。", "error"); return; }
+        if (!instruction) { setFlash("请输入修复指令。", "error"); return; }
+        const task = await api(`/api/projects/${state.selectedProjectId}/spot-fix`, { method: "POST", body: JSON.stringify({ chapter_asset_id: state.selectedAssetId, paragraph_indices: state.spotFixSelectedParagraphs, fix_instruction: instruction, branch: state.selectedBranch }) });
+        await api(`/api/projects/${state.selectedProjectId}/workers/drain?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST", body: JSON.stringify({}) });
+        await refreshSelectedProject();
+        const completed = await api(`/api/tasks/${task.task_id}`);
+        const candidateId = completed.output_refs?.[0];
+        if (candidateId) { state.selectedSpotFixCandidateId = candidateId; await loadSpotFixDiff(candidateId); }
+        setFlash("Spot-Fix 候选已生成，请查看 diff 后接受或拒绝。", "success");
+      }
+
+      async function loadSpotFixDiff(candidateId = state.selectedSpotFixCandidateId) {
+        if (!state.selectedProjectId || !candidateId) { setFlash("没有可查看的 Spot-Fix 候选。", "error"); return; }
+        const diff = await api(`/api/projects/${state.selectedProjectId}/spot-fix/${candidateId}/diff?branch=${encodeURIComponent(state.selectedBranch)}`);
+        document.getElementById("spotFixDiffContent").textContent = diff.unified_diff || JSON.stringify(diff.paragraphs || [], null, 2);
+      }
+
+      async function acceptSpotFix() {
+        if (!state.selectedProjectId || !state.selectedSpotFixCandidateId) { setFlash("没有可接受的 Spot-Fix 候选。", "error"); return; }
+        const asset = await api(`/api/projects/${state.selectedProjectId}/spot-fix/${state.selectedSpotFixCandidateId}/accept?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST", body: JSON.stringify({}) });
+        state.selectedAssetId = asset.asset_id;
+        state.spotFixSelectedParagraphs = [];
+        await refreshSelectedProject();
+        setFlash("Spot-Fix 已接受并保存为正式章节新版本。", "success");
+      }
+
+      async function rejectSpotFix() {
+        if (!state.selectedProjectId || !state.selectedSpotFixCandidateId) { setFlash("没有可拒绝的 Spot-Fix 候选。", "error"); return; }
+        await api(`/api/projects/${state.selectedProjectId}/spot-fix/${state.selectedSpotFixCandidateId}/reject?branch=${encodeURIComponent(state.selectedBranch)}`, { method: "POST", body: JSON.stringify({}) });
+        state.selectedSpotFixCandidateId = null;
+        await refreshSelectedProject();
+        setFlash("Spot-Fix 候选已拒绝，正式章节未改变。", "success");
+      }
+
+      function withUiError(fn) { return async (event) => { try { setFlash(""); await fn(event); setConnectionState(true); } catch (error) { setConnectionState(false, error.message); setFlash(error.message || "请求失败。", "error"); } }; }
+
+      function bindEvents() {
+        document.getElementById("project-form").addEventListener("submit", withUiError(createProject));
+        document.getElementById("save-asset-btn").addEventListener("click", withUiError(saveSelectedAsset));
+        document.getElementById("rollback-asset-btn").addEventListener("click", withUiError(rollbackAsset));
+        document.getElementById("delete-asset-btn").addEventListener("click", withUiError(deleteAsset));
+        document.getElementById("first-loop-btn").addEventListener("click", withUiError(runFirstLoop));
+        document.getElementById("next-chapter-btn").addEventListener("click", withUiError(runNextChapter));
+        document.getElementById("drain-btn").addEventListener("click", withUiError(drainQueue));
+        document.getElementById("export-md-btn").addEventListener("click", withUiError(() => exportProject("markdown")));
+        document.getElementById("export-text-btn").addEventListener("click", withUiError(() => exportProject("text")));
+        document.getElementById("export-qidian-btn").addEventListener("click", withUiError(() => exportProject("qidian")));
+        document.getElementById("export-jinjiang-btn").addEventListener("click", withUiError(() => exportProject("jinjiang")));
+        document.getElementById("diff-versions-btn").addEventListener("click", withUiError(showDiff));
+        document.getElementById("close-diff-btn").addEventListener("click", () => { els.diffCard.hidden = true; });
+        document.getElementById("contrast-toggle-btn").addEventListener("click", () => { document.body.classList.toggle("high-contrast"); localStorage.setItem("storyforge-high-contrast", document.body.classList.contains("high-contrast") ? "1" : "0"); });
+        document.getElementById("refresh-all-btn").addEventListener("click", withUiError(refreshAll));
+        document.getElementById("comment-form").addEventListener("submit", withUiError(submitComment));
+        document.getElementById("comment-status-filter").addEventListener("change", () => renderComments(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null));
+        document.getElementById("new-branch-btn").addEventListener("click", withUiError(createBranch));
+        document.getElementById("fork-branch-btn").addEventListener("click", withUiError(forkBranch));
+        document.getElementById("compare-branches-btn").addEventListener("click", withUiError(compareBranches));
+        document.getElementById("branch-select").addEventListener("change", withUiError(changeBranch));
+        document.getElementById("rule-form").addEventListener("submit", withUiError(createRule));
+        document.getElementById("style-profile-form").addEventListener("submit", withUiError(saveStyleProfile));
+        document.getElementById("foreshadowing-form").addEventListener("submit", withUiError(createForeshadowing));
+        document.getElementById("timeline-form").addEventListener("submit", withUiError(createTimelineEvent));
+        document.getElementById("console-first-loop-btn").addEventListener("click", withUiError(runFirstLoop));
+        document.getElementById("console-next-chapter-btn").addEventListener("click", withUiError(runNextChapter));
+        document.getElementById("console-drain-btn").addEventListener("click", withUiError(drainQueue));
+        document.getElementById("retry-failed-btn").addEventListener("click", withUiError(retryFailedTasks));
+        document.getElementById("cancel-pending-btn").addEventListener("click", withUiError(cancelPendingTasks));
+        document.getElementById("spotFixInlineSubmit").addEventListener("click", withUiError(submitInlineSpotFix));
+        document.getElementById("spotFixRetry").addEventListener("click", withUiError(submitInlineSpotFix));
+        document.getElementById("spotFixAccept").addEventListener("click", withUiError(acceptSpotFix));
+        document.getElementById("spotFixReject").addEventListener("click", withUiError(rejectSpotFix));
+
+        // Spot-fix modal handlers
+        let spotFixTargetChapterId = null;
+        document.addEventListener("click", (e) => {
+          if (e.target.classList.contains("spot-fix-btn")) {
+            spotFixTargetChapterId = e.target.dataset.chapterAssetId;
+            const modal = document.getElementById("spotFixModal");
+            modal.style.display = "flex";
+          }
+        });
+        document.getElementById("spotFixCancel").addEventListener("click", () => {
+          document.getElementById("spotFixModal").style.display = "none";
+          spotFixTargetChapterId = null;
+        });
+        document.getElementById("spotFixSubmit").addEventListener("click", async () => {
+          const paragraphs = document.getElementById("spotFixParagraphs").value.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+          const instruction = document.getElementById("spotFixInstruction").value.trim();
+          if (!spotFixTargetChapterId) return;
+          try {
+            const resp = await api(`/api/projects/${state.selectedProjectId}/spot-fix`, {
+              method: "POST",
+              body: JSON.stringify({ chapter_asset_id: spotFixTargetChapterId, paragraph_indices: paragraphs, fix_instruction: instruction, branch: state.selectedBranch }),
+            });
+            setFlash(`定点修复任务已提交 (${resp.task_id.slice(0, 8)}...)`, "ok");
+            document.getElementById("spotFixModal").style.display = "none";
+            document.getElementById("spotFixParagraphs").value = "";
+            document.getElementById("spotFixInstruction").value = "";
+            spotFixTargetChapterId = null;
+            await refreshSelectedProject();
+          } catch (error) {
+            setFlash(`提交失败: ${error.message}`, "error");
+          }
+        });
+
+        // Auto-mode toggle
+        document.getElementById("auto-mode-toggle").addEventListener("click", async () => {
+          if (!state.selectedProjectId) return;
+          const current = state.selectedProject?.auto_mode ?? true;
+          try {
+            const resp = await api(`/api/projects/${state.selectedProjectId}/auto-mode`, {
+              method: "PATCH",
+              body: JSON.stringify({ auto_mode: !current }),
+            });
+            state.selectedProject = resp;
+            renderAutoModeToggle(resp.auto_mode);
+            await refreshSelectedProject();
+          } catch (error) {
+            setFlash(`切换失败: ${error.message}`, "error");
+          }
+        });
+      }
+
+      function renderAutoModeToggle(autoMode) {
+        const knob = document.getElementById("auto-mode-knob");
+        const toggle = document.getElementById("auto-mode-toggle");
+        const label = document.getElementById("auto-mode-label");
+        if (autoMode) {
+          knob.style.left = "21px";
+          knob.style.background = "var(--accent)";
+          toggle.style.borderColor = "var(--accent)";
+          label.textContent = "自动模式";
+        } else {
+          knob.style.left = "1px";
+          knob.style.background = "var(--muted)";
+          toggle.style.borderColor = "var(--line-strong)";
+          label.textContent = "手动模式";
+        }
+      }
+
+      async function bootstrap() {
+        bindEvents();
+        bindKeyboardShortcuts();
+        try { await loadProjects(true); if (state.selectedProjectId) { await refreshSelectedProject(); startEventStream(); } setConnectionState(true); } catch (error) { setConnectionState(false, error.message); setFlash(error.message || "初始化失败。", "error"); }
+      }
+
+      window.addEventListener("beforeunload", () => { stopEventStream(); });
+      if (localStorage.getItem('storyforge-high-contrast') === '1') { document.body.classList.add('high-contrast'); }
+      window.addEventListener("DOMContentLoaded", bootstrap);
+    </script>
+
+    <!-- Spot-Fix Modal -->
+    <div id="spotFixModal" class="paper-overlay">
+      <div style="background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--radius-md); padding:24px; width:500px; max-width:90vw; max-height:80vh; overflow-y:auto;">
+        <h3 style="margin:0 0 16px; font-size:16px;">定点修复</h3>
+        <div style="margin-bottom:12px;">
+          <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:4px;">目标段落索引（从0开始，逗号分隔）</label>
+          <input id="spotFixParagraphs" type="text" placeholder="如: 0,2,4" style="width:100%; padding:8px; background:var(--elevated); border:1px solid var(--line); border-radius:var(--radius-sm); color:var(--text); font-size:13px;" />
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:13px; color:var(--text-secondary); margin-bottom:4px;">修改指令</label>
+          <textarea id="spotFixInstruction" rows="4" placeholder="描述需要修改的内容..." style="width:100%; padding:8px; background:var(--elevated); border:1px solid var(--line); border-radius:var(--radius-sm); color:var(--text); font-size:13px; resize:vertical;"></textarea>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button id="spotFixCancel" style="padding:8px 16px; background:var(--elevated); border:1px solid var(--line); border-radius:var(--radius-sm); color:var(--text); cursor:pointer; font-size:13px;">取消</button>
+          <button id="spotFixSubmit" style="padding:8px 16px; background:var(--accent); border:none; border-radius:var(--radius-sm); color:white; cursor:pointer; font-size:13px;">提交修复</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

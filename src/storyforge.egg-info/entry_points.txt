@@ -1,0 +1,2 @@
+[console_scripts]
+storyforge = storyforge.cli.main:cli

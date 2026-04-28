@@ -1,0 +1,166 @@
+Metadata-Version: 2.4
+Name: storyforge
+Version: 0.1.0
+Summary: StoryForge new core
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: uvicorn[standard]<1.0,>=0.30
+Requires-Dist: pydantic<3.0,>=2.8
+Requires-Dist: anthropic<1.0,>=0.39
+Requires-Dist: click>=8.1
+Requires-Dist: httpx<0.29,>=0.27
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8; extra == "dev"
+
+# StoryForge Product Definition
+
+## 1. One-line positioning
+
+StoryForge is a project-based, controllable, automated long-form novel production system for professional web novel authors and small content studios.
+
+It is not primarily:
+- a general chat assistant
+- a prompt playground
+- a single-chapter continuation toy
+
+The human role is closer to director, reviewer, and rule setter than line-by-line prompt operator.
+
+## 2. Target users
+
+Primary users:
+1. Professional web novel authors who need stable output and continuity over long arcs.
+2. Small content studios or IP incubation teams that need repeatable workflows across multiple projects.
+
+This product is not optimized for casual users who only want to play with one-off text generation.
+
+## 3. Core problem to solve
+
+The market already has enough tools that can generate one paragraph or one chapter.
+The real missing capability is the ability to keep an entire book coherent, controllable, and productive over time.
+
+The main user pain is not:
+- coming up with a title
+- writing one strong opening paragraph
+- expanding a prompt into a few hundred words
+
+The real pain is:
+- not being able to sustain a long story
+- continuity collapse
+- character drift
+- broken pacing
+- heavy rework
+- poor multi-project visibility
+- generated text that feels too mechanical to use directly
+
+## 4. Core product promise
+
+StoryForge must deliver six promises:
+
+1. A project can start from one simple idea.
+2. The system builds project assets before writing chapters.
+3. Chapter writing is a production pipeline, not a single model call.
+4. Users control direction and rules, not every sentence.
+5. Outputs are traceable, editable, and recoverable.
+6. The real goal is long-term believable serialization, not one impressive sample chapter.
+
+## 5. Core workflow
+
+The intended workflow is:
+
+`idea -> project brief -> asset generation -> outline -> chapter queue -> review/rewrite -> persistence -> export/publish prep`
+
+The UI center should be the project control surface, not a chat box.
+
+## 6. Product workbenches
+
+The product should naturally organize around six work areas:
+
+1. Project desk
+   - idea
+   - genre
+   - tags
+   - audience
+   - style constraints
+   - target length
+   - update strategy
+
+2. Asset desk
+   - world
+   - characters
+   - factions
+   - power/rule systems
+   - timeline
+   - writing rules
+
+3. Outline desk
+   - arcs
+   - chapters
+   - mainline / subplots
+   - conflict beats
+   - pacing
+   - foreshadowing and payoff
+
+4. Production desk
+   - chapter queue
+   - batch generation
+   - retries
+   - block diagnosis
+   - current progress
+   - per-project status
+
+5. QA desk
+   - continuity checks
+   - character consistency checks
+   - repetition checks
+   - style drift checks
+   - AI-signature / mechanicalness checks
+   - rewrite recommendations
+
+6. Publishing desk
+   - export
+   - versions
+   - draft history
+   - arc organization
+   - pre-publish checks
+
+## 7. Real product advantages
+
+The real differentiators are:
+- long-form stability
+- continuity strength
+- high automation
+- controllability and traceability
+- multi-project management
+- low rework cost
+
+The number of integrated models or sliders is not the product moat.
+
+## 8. Explicit non-goals
+
+StoryForge should not be optimized first for:
+- generic chat use
+- prompt engineering as the main interface
+- toy single-chapter continuation
+- anti-detector marketing as the main narrative
+- social/community features before the core loop works
+
+A better framing than “beat AI detection” is:
+- reduce mechanicalness
+- improve human-like variation
+- lower obvious AI signature
+
+## 9. v1 success criteria
+
+Version 1 succeeds only if:
+1. A user can go from one-line idea to a writable project quickly.
+2. The system reliably runs `brief -> outline -> chapter`.
+3. Over long runs, continuity and character stability beat direct one-shot LLM writing.
+4. Users can always tell where a project is, what failed, and how to continue.
+
+## 10. Final product definition
+
+StoryForge is not a chat-first writing assistant.
+It is a long-form novel project production system.
+
+Its role is to turn writing a web novel from a manual workshop into a pipeline with assets, process, quality gates, and observable state.

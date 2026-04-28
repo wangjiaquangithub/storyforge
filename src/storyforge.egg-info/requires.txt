@@ -1,0 +1,9 @@
+fastapi<1.0,>=0.115
+uvicorn[standard]<1.0,>=0.30
+pydantic<3.0,>=2.8
+anthropic<1.0,>=0.39
+click>=8.1
+httpx<0.29,>=0.27
+
+[dev]
+pytest<9,>=8
