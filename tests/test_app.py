@@ -46,6 +46,8 @@ def test_frontend_index_serves_workbench() -> None:
     assert 'background: #000000' not in response.text
     assert "throw new Error(`${path}:" in response.text
     assert "catch (error) { setFlash(error.message || \"请求失败。\", \"error\"); }" in response.text
+    assert "emptyProductionConsole(projectId)" in response.text
+    assert "/production-console?${branchQuery}`).catch" in response.text
 
 
 def test_frontend_bootstrap_waits_for_full_dom() -> None:

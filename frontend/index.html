@@ -1194,6 +1194,10 @@
         renderEditor(asset || null);
       }
 
+      function emptyProductionConsole(projectId) {
+        return { project_id: projectId, branch: state.selectedBranch, auto_mode: state.selectedProject?.auto_mode ?? true, task_summary: { total: 0, accepted: 0, queued: 0, running: 0, waiting_retry: 0, failed: 0, cancelled: 0, completed: 0 }, queue: [], available_actions: [] };
+      }
+
       async function refreshSelectedProject() {
         if (!state.selectedProjectId) {
           state.selectedProject = null; state.summary = null; state.assets = []; state.tasks = []; state.chapters = []; state.latestReview = null; state.qualityExperiments = null; state.rules = []; state.foreshadowing = []; state.timeline = []; state.pacingCurve = null;
@@ -1209,7 +1213,7 @@
           api(`/api/projects/${projectId}/assets?${branchQuery}`),
           api(`/api/projects/${projectId}/tasks?${branchQuery}`),
           api(`/api/projects/${projectId}/chapters?${branchQuery}`),
-          api(`/api/projects/${projectId}/production-console?${branchQuery}`),
+          api(`/api/projects/${projectId}/production-console?${branchQuery}`).catch(() => emptyProductionConsole(projectId)),
           api(`/api/projects/${projectId}/foreshadowing?${branchQuery}`),
           api(`/api/projects/${projectId}/timeline?${branchQuery}`),
           api(`/api/projects/${projectId}/pacing-curve?${branchQuery}`),
