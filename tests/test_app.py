@@ -28,6 +28,8 @@ def test_frontend_index_serves_workbench() -> None:
     assert response.headers["content-type"].startswith("text/html")
     assert "<title>StoryForge</title>" in response.text
     assert "StoryForge Workbench" in response.text
+    assert "rel=\"icon\"" in response.text
+    assert "SF%3C/text%3E" in response.text
     assert "生产控制台" in response.text
     assert "production-branch" in response.text
     assert "retry-failed-btn" in response.text
