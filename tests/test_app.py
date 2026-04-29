@@ -1,4 +1,7 @@
 import json
+import shutil
+import subprocess
+import textwrap
 
 from pathlib import Path
 
@@ -148,6 +151,10 @@ def test_frontend_index_serves_workbench() -> None:
     assert "renderQualityExperiments" in response.text
     assert "/quality-experiments?${branchQuery}" in response.text
     assert "approval_rate" in response.text
+    assert "作品资料" in response.text
+    assert "系统记录" in response.text
+    assert "getAuthorSidebarAssets" in response.text
+    assert "pickDefaultAuthorAsset" in response.text
     assert 'background: var(--bg)' in response.text
     assert 'background: #000' not in response.text
     assert 'background: #000000' not in response.text
@@ -165,6 +172,53 @@ def test_frontend_bootstrap_waits_for_full_dom() -> None:
     assert response.status_code == 200
     assert 'window.addEventListener("DOMContentLoaded", bootstrap);' in response.text
     assert "\n      bootstrap();" not in response.text
+
+
+def test_frontend_asset_sidebar_helpers_group_author_assets() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for frontend helper smoke tests")
+
+    html = Path("frontend/index.html").read_text(encoding="utf-8")
+    helpers_start = html.index("      const ASSET_TYPE_LABELS")
+    helpers_end = html.index("      function renderProjectOverview")
+    helpers = html[helpers_start:helpers_end]
+    script = textwrap.dedent(
+        f"""
+        const assert = require("node:assert/strict");
+        {helpers}
+        const assets = [
+          {{ asset_id: "audit-latest", asset_type: "audit_report", version: 4, source: "system", structured_data: {{ chapter_number: 1 }}, updated_at: "2026-04-29T10:00:00Z" }},
+          {{ asset_id: "draft-old", asset_type: "chapter", version: 1, source: "system", structured_data: {{ chapter_number: 1, title: "危机开场" }}, updated_at: "2026-04-29T08:00:00Z" }},
+          {{ asset_id: "final-current", asset_type: "final_chapter", version: 2, source: "system", structured_data: {{ chapter_number: 1, title: "危机开场" }}, updated_at: "2026-04-29T09:00:00Z" }},
+          {{ asset_id: "world-old", asset_type: "world", version: 1, source: "system", structured_data: {{ title: "旧世界" }}, updated_at: "2026-04-29T07:00:00Z" }},
+          {{ asset_id: "world-latest", asset_type: "world", version: 2, source: "system", structured_data: {{ title: "新世界" }}, updated_at: "2026-04-29T08:30:00Z" }},
+          {{ asset_id: "outline-current", asset_type: "outline", version: 1, source: "system", structured_data: {{ title: "第一卷" }}, updated_at: "2026-04-29T08:10:00Z" }},
+          {{ asset_id: "custom-note", asset_type: "studio_note", version: 1, source: "human", structured_data: {{ title: "编辑提醒" }}, updated_at: "2026-04-29T06:00:00Z" }}
+        ];
+        const groups = getAuthorSidebarAssets(assets, "draft-old");
+        assert.deepEqual(groups.map((group) => group.title), ["当前打开", "正在写作", "故事资料", "大纲与导出", "其他资料"]);
+        assert.equal(groups[0].assets[0].asset_id, "draft-old");
+        assert.equal(groups[1].assets[0].asset_id, "final-current");
+        assert.equal(groups[2].assets[0].asset_id, "world-latest");
+        assert.equal(groups[3].assets[0].asset_id, "outline-current");
+        assert.equal(groups[4].assets[0].asset_id, "custom-note");
+        assert.deepEqual(getDebugSidebarAssets(assets).map((asset) => asset.asset_id), ["audit-latest"]);
+        assert.equal(pickDefaultAuthorAsset(assets).asset_id, "final-current");
+        console.log("ok");
+        """
+    )
+
+    completed = subprocess.run(
+        [node, "--input-type=commonjs"],
+        input=script,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_frontend_index_returns_503_when_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

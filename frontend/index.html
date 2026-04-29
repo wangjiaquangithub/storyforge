@@ -200,6 +200,13 @@
       .list-item.active { background: rgba(124, 77, 29, 0.10); }
       .list-title { font-weight: 500; line-height: 1.4; font-size: 13px; }
       .list-meta { margin-top: 4px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; }
+      .asset-list-help { margin: -2px 0 10px; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+      .asset-group { display: flex; flex-direction: column; gap: 4px; }
+      .asset-group + .asset-group, .asset-debug-group { margin-top: 12px; }
+      .asset-group-title { padding: 4px 2px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+      .asset-debug-group { border-top: 1px solid var(--line); padding-top: 8px; }
+      .asset-debug-group summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; padding: 6px 2px; }
+      .asset-debug-group[open] { display: flex; flex-direction: column; gap: 4px; }
 
       /* Badges */
       .badge {
@@ -567,15 +574,16 @@
         <!-- Assistant panel (320px) -->
         <aside class="panel right">
           <div class="panel-inner">
-            <section class="card" id="asset-list-card" hidden>
-              <div class="editor-header">
-                <h2>资产</h2>
-                <span class="badge" id="asset-count-badge">0</span>
-              </div>
-              <div class="asset-list" id="asset-list"></div>
-            </section>
             <section class="card" id="chapters-card" hidden><h2>章节导航</h2><div class="chapter-list" id="chapter-list"></div></section>
             <section class="card" id="outline-card" hidden><h2>大纲</h2><div class="outline-list" id="outline-list"></div></section>
+            <section class="card" id="asset-list-card" hidden>
+              <div class="editor-header">
+                <h2>作品资料</h2>
+                <span class="badge" id="asset-count-badge">0</span>
+              </div>
+              <p class="asset-list-help">显示可直接阅读和编辑的创作资料，系统记录已收起。</p>
+              <div class="asset-list" id="asset-list"></div>
+            </section>
             <section class="card" id="tasks-card" hidden>
               <div class="editor-header">
                 <h2>任务队列</h2>
@@ -722,6 +730,9 @@
         branchStatusBadge: document.getElementById("branch-status-badge"), branchCompareCard: document.getElementById("branch-compare-card"), branchCompareTitle: document.getElementById("branch-compare-title"), branchChapterDiff: document.getElementById("branch-chapter-diff"), branchAuditDiff: document.getElementById("branch-audit-diff"), connectionBadge: document.getElementById("connection-badge"), flashMessage: document.getElementById("flash-message"), projectList: document.getElementById("project-list"), projectCountBadge: document.getElementById("project-count-badge"), assetListCard: document.getElementById("asset-list-card"), assetList: document.getElementById("asset-list"), assetCountBadge: document.getElementById("asset-count-badge"), trashCard: document.getElementById("trash-card"), trashList: document.getElementById("trash-list"), trashCountBadge: document.getElementById("trash-count-badge"), diffCard: document.getElementById("diff-card"), diffContent: document.getElementById("diff-content"), projectOverview: document.getElementById("project-overview"), projectOverviewCard: document.getElementById("project-overview-card"), projectTitle: document.getElementById("project-title"), projectPhase: document.getElementById("project-phase"), projectCursor: document.getElementById("project-cursor"), projectUpdated: document.getElementById("project-updated"), latestEvent: document.getElementById("latest-event"), summaryTotal: document.getElementById("summary-total"), summaryCompleted: document.getElementById("summary-completed"), summaryRunning: document.getElementById("summary-running"), summaryFailed: document.getElementById("summary-failed"), summaryTokens: document.getElementById("summary-tokens"), chaptersCard: document.getElementById("chapters-card"), chapterList: document.getElementById("chapter-list"), outlineCard: document.getElementById("outline-card"), outlineList: document.getElementById("outline-list"), tasksCard: document.getElementById("tasks-card"), taskList: document.getElementById("task-list"), taskQueueBadge: document.getElementById("task-queue-badge"), assetEditorCard: document.getElementById("asset-editor-card"), editorTitle: document.getElementById("editor-title"), editorType: document.getElementById("editor-type"), editorVersion: document.getElementById("editor-version"), editorSource: document.getElementById("editor-source"), assetIdDisplay: document.getElementById("asset-id-display"), assetContentEditor: document.getElementById("asset-content-editor"), assetSourceEditor: document.getElementById("asset-source-editor"), assetStructuredEditor: document.getElementById("asset-structured-editor"), rollbackVersionSelect: document.getElementById("rollback-version-select"), styleCard: document.getElementById("style-card"), styleProfileContent: document.getElementById("style-profile-content"), styleProfileForm: document.getElementById("style-profile-form"), styleVoiceInput: document.getElementById("style-voice-input"), styleStrengthsInput: document.getElementById("style-strengths-input"), styleAvoidInput: document.getElementById("style-avoid-input"), styleSensoryKeywordsInput: document.getElementById("style-sensory-keywords-input"), styleLockedFieldsInput: document.getElementById("style-locked-fields-input"), commentsCard: document.getElementById("comments-card"), commentsList: document.getElementById("comments-list"), commentForm: document.getElementById("comment-form"), commentAuthorInput: document.getElementById("comment-author-input"), currentRoleInput: document.getElementById("current-role-input"), approvalStatusInput: document.getElementById("approval-status-input"), commentStatusFilter: document.getElementById("comment-status-filter"), commentAnchorTypeInput: document.getElementById("comment-anchor-type-input"), commentParagraphIndexInput: document.getElementById("comment-paragraph-index-input"), commentStartOffsetInput: document.getElementById("comment-start-offset-input"), commentEndOffsetInput: document.getElementById("comment-end-offset-input"), commentContentInput: document.getElementById("comment-content-input"), branchSelect: document.getElementById("branch-select"), newBranchBtn: document.getElementById("new-branch-btn"), auditCard: document.getElementById("audit-card"), auditStatusBadge: document.getElementById("audit-status-badge"), auditPanelContent: document.getElementById("audit-panel-content"), qualityExperimentsCard: document.getElementById("quality-experiments-card"), qualityExperimentsCountBadge: document.getElementById("quality-experiments-count-badge"), qualityExperimentsList: document.getElementById("quality-experiments-list"), ruleCard: document.getElementById("rule-card"), ruleCountBadge: document.getElementById("rule-count-badge"), ruleList: document.getElementById("rule-list"), ruleForm: document.getElementById("rule-form"), ruleNameInput: document.getElementById("rule-name-input"), ruleDescriptionInput: document.getElementById("rule-description-input"), foreshadowingCard: document.getElementById("foreshadowing-card"), foreshadowingCountBadge: document.getElementById("foreshadowing-count-badge"), foreshadowingList: document.getElementById("foreshadowing-list"), foreshadowingForm: document.getElementById("foreshadowing-form"), foreshadowingTitleInput: document.getElementById("foreshadowing-title-input"), foreshadowingDescriptionInput: document.getElementById("foreshadowing-description-input"), foreshadowingIntroducedInput: document.getElementById("foreshadowing-introduced-input"), foreshadowingResolutionInput: document.getElementById("foreshadowing-resolution-input"), timelineCard: document.getElementById("timeline-card"), timelineCountBadge: document.getElementById("timeline-count-badge"), timelineList: document.getElementById("timeline-list"), timelineForm: document.getElementById("timeline-form"), timelineTitleInput: document.getElementById("timeline-title-input"), timelineDescriptionInput: document.getElementById("timeline-description-input"), timelineChapterInput: document.getElementById("timeline-chapter-input"), timelineOrderInput: document.getElementById("timeline-order-input"), timelineTimeInput: document.getElementById("timeline-time-input"), timelineLocationInput: document.getElementById("timeline-location-input"), timelineCharactersInput: document.getElementById("timeline-characters-input"), pacingCard: document.getElementById("pacing-card"), pacingCountBadge: document.getElementById("pacing-count-badge"), pacingCurveSvg: document.getElementById("pacing-curve-svg"), pacingCurveList: document.getElementById("pacing-curve-list"), criticalPathList: document.getElementById("critical-path-list"), bootstrapAssetStatus: document.getElementById("bootstrap-asset-status"), exportGateBadge: document.getElementById("export-gate-badge")
       };
       const ASSET_TYPE_LABELS = { brief: "项目概要", world: "世界观", characters: "角色卡", rules: "规则集", timeline: "时间线", style_profile: "风格画像", foreshadowing: "伏笔资产", outline: "大纲", chapter_summary: "章节摘要", chapter: "章节草稿", validation_report: "验证报告", audit_report: "审计报告", revision_delta: "修订差异", final_chapter: "定稿章节", export_candidate: "导出候选", review_note: "审查意见", continuity_note: "连续性记录" };
+      const AUTHOR_ASSET_TYPE_LABELS = { brief: "项目概要", world: "世界设定", characters: "角色设定", rules: "创作规则", timeline: "故事时间线", style_profile: "文风参考", foreshadowing: "伏笔", outline: "章节大纲", chapter: "章节草稿", final_chapter: "已定稿章节", export_candidate: "可导出正文" };
+      const AUTHOR_ASSET_TYPES = new Set(Object.keys(AUTHOR_ASSET_TYPE_LABELS));
+      const DEBUG_ASSET_TYPES = new Set(["validation_report", "audit_report", "revision_delta", "review_note", "continuity_note", "chapter_summary"]);
       const TASK_TYPE_LABELS = { brief_generation: "Brief 生成", asset_bootstrap: "资产初始化", outline_generation: "大纲生成", chapter_generation: "章节草稿", chapter_validation: "章节验证", chapter_audit: "章节审计", chapter_revision: "章节修订", chapter_reaudit: "章节复审", final_save: "定稿保存", export_candidate: "导出候选", chapter_review: "章节审查", spot_fix: "定点修复", export: "导出" };
       const TASK_STATUS_LABELS = { accepted: "已接受", queued: "排队中", running: "运行中", waiting_retry: "等待重试", failed: "失败", cancelled: "已取消", completed: "已完成" };
       const PROJECT_PHASE_LABELS = { intake: "创意录入", briefing: "概要生成", outlining: "大纲生成", drafting: "章节撰写", review: "审查修改", publishing: "发布准备" };
@@ -762,18 +773,89 @@
       }
 
       function assetLabel(asset) { const title = asset.structured_data?.title || asset.structured_data?.summary || t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type); return `${t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type)} · v${asset.version} · ${title}`; }
+      function assetSidebarTitle(asset) {
+        const chapterNumber = asset.structured_data?.chapter_number;
+        const title = asset.structured_data?.title || asset.structured_data?.summary || "";
+        const label = t(AUTHOR_ASSET_TYPE_LABELS, asset.asset_type, t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type));
+        if (["chapter", "final_chapter"].includes(asset.asset_type) && chapterNumber) return `第 ${chapterNumber} 章：${title || label}`;
+        return title ? `${label} · ${title}` : label;
+      }
+      function compareAssetFreshness(assetA, assetB) {
+        const versionDiff = (assetA.version || 0) - (assetB.version || 0);
+        if (versionDiff !== 0) return versionDiff;
+        const timeA = new Date(assetA.updated_at || assetA.created_at || 0).getTime() || 0;
+        const timeB = new Date(assetB.updated_at || assetB.created_at || 0).getTime() || 0;
+        return timeA - timeB;
+      }
+      function latestAsset(assets) { return [...assets].sort(compareAssetFreshness).at(-1); }
+      function uniqueAssets(assets) {
+        const seen = new Set();
+        return assets.filter((asset) => {
+          if (!asset || seen.has(asset.asset_id)) return false;
+          seen.add(asset.asset_id);
+          return true;
+        });
+      }
+      function getAuthorSidebarAssets(assets, selectedAssetId = state.selectedAssetId) {
+        const selectedAsset = assets.find((asset) => asset.asset_id === selectedAssetId);
+        const visibleIds = new Set();
+        const addVisible = (items) => items.filter((asset) => {
+          if (!asset || visibleIds.has(asset.asset_id)) return false;
+          visibleIds.add(asset.asset_id);
+          return true;
+        });
+        const writingByChapter = new Map();
+        assets.filter((asset) => ["chapter", "final_chapter"].includes(asset.asset_type)).forEach((asset) => {
+          const chapterNumber = asset.structured_data?.chapter_number || asset.version || asset.asset_id;
+          const current = writingByChapter.get(chapterNumber);
+          if (!current || (asset.asset_type === "final_chapter" && current.asset_type !== "final_chapter") || (asset.asset_type === current.asset_type && compareAssetFreshness(asset, current) > 0)) writingByChapter.set(chapterNumber, asset);
+        });
+        const latestByType = (types) => types.map((assetType) => latestAsset(assets.filter((asset) => asset.asset_type === assetType))).filter(Boolean);
+        const writing = [...writingByChapter.entries()].sort(([chapterA, assetA], [chapterB, assetB]) => Number(chapterA) - Number(chapterB) || compareAssetFreshness(assetB, assetA)).map(([, asset]) => asset);
+        const storyAssets = latestByType(["brief", "world", "characters", "rules", "timeline", "style_profile", "foreshadowing"]);
+        const outlineAssets = latestByType(["outline", "export_candidate"]);
+        const fallbackCandidates = assets.filter((asset) => !AUTHOR_ASSET_TYPES.has(asset.asset_type) && !DEBUG_ASSET_TYPES.has(asset.asset_type)).sort((a, b) => compareAssetFreshness(b, a));
+        const standardVisibleIds = new Set([...writing, ...storyAssets, ...outlineAssets, ...fallbackCandidates].map((asset) => asset.asset_id));
+        const selectedGroupAssets = selectedAsset && !DEBUG_ASSET_TYPES.has(selectedAsset.asset_type) && !standardVisibleIds.has(selectedAsset.asset_id) ? [selectedAsset] : [];
+        const groups = [
+          { title: "当前打开", assets: addVisible(selectedGroupAssets) },
+          { title: "正在写作", assets: addVisible(writing) },
+          { title: "故事资料", assets: addVisible(storyAssets) },
+          { title: "大纲与导出", assets: addVisible(outlineAssets) }
+        ];
+        const fallbackAssets = addVisible(fallbackCandidates);
+        groups.push({ title: "其他资料", assets: fallbackAssets });
+        return groups.filter((group) => group.assets.length);
+      }
+      function getDebugSidebarAssets(assets) { return assets.filter((asset) => DEBUG_ASSET_TYPES.has(asset.asset_type)).sort((a, b) => compareAssetFreshness(b, a)); }
+      function pickDefaultAuthorAsset(assets) {
+        const preferredTypes = ["final_chapter", "chapter", "outline", "export_candidate", "brief", "world", "characters", "rules", "timeline", "style_profile", "foreshadowing"];
+        for (const assetType of preferredTypes) {
+          const asset = latestAsset(assets.filter((item) => item.asset_type === assetType));
+          if (asset) return asset;
+        }
+        return latestAsset(assets);
+      }
+      function renderAssetButton(asset) {
+        const active = asset.asset_id === state.selectedAssetId ? "active" : "";
+        const meta = [t(AUTHOR_ASSET_TYPE_LABELS, asset.asset_type, t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type)), formatTime(asset.updated_at || asset.created_at)];
+        return `<button class="list-item ${active}" data-asset-id="${asset.asset_id}"><div class="list-title">${escapeHtml(assetSidebarTitle(asset))}</div><div class="list-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div></button>`;
+      }
+      function renderAssetGroup(group) { return `<div class="asset-group"><div class="asset-group-title">${escapeHtml(group.title)}</div>${group.assets.map(renderAssetButton).join("")}</div>`; }
 
       function renderAssets() {
         const hasProject = Boolean(state.selectedProjectId);
         els.assetListCard.hidden = !hasProject;
         if (!hasProject) return;
-        const assets = [...state.assets].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0));
-        els.assetCountBadge.textContent = `${assets.length} 条`;
-        if (!assets.length) { els.assetList.innerHTML = '<div class="empty">先选择资产类型，创建第一个资产。</div>'; return; }
-        els.assetList.innerHTML = assets.map((asset) => {
-          const active = asset.asset_id === state.selectedAssetId ? "active" : "";
-          return `<button class="list-item ${active}" data-asset-id="${asset.asset_id}"><div class="list-title">${escapeHtml(assetLabel(asset))}</div><div class="list-meta"><span>${asset.source === "system" ? "系统" : "人工"}</span><span>${escapeHtml(formatTime(asset.updated_at || asset.created_at))}</span></div></button>`;
-        }).join("");
+        const authorGroups = getAuthorSidebarAssets(state.assets);
+        const authorCount = uniqueAssets(authorGroups.flatMap((group) => group.assets)).length;
+        const debugAssets = getDebugSidebarAssets(state.assets);
+        const selectedDebugAsset = debugAssets.some((asset) => asset.asset_id === state.selectedAssetId);
+        els.assetCountBadge.textContent = `${authorCount} 条`;
+        if (!state.assets.length) { els.assetList.innerHTML = '<div class="empty">先选择资产类型，创建第一个资产。</div>'; return; }
+        const authorHtml = authorGroups.length ? authorGroups.map(renderAssetGroup).join("") : '<div class="empty">还没有可阅读的作品资料。</div>';
+        const debugHtml = debugAssets.length ? `<details class="asset-debug-group" ${selectedDebugAsset ? "open" : ""}><summary>系统记录（${debugAssets.length}）</summary>${debugAssets.map(renderAssetButton).join("")}</details>` : "";
+        els.assetList.innerHTML = authorHtml + debugHtml;
         els.assetList.querySelectorAll("[data-asset-id]").forEach((button) => button.addEventListener("click", () => selectAsset(button.dataset.assetId)));
       }
 
@@ -1327,7 +1409,7 @@
         if (effectiveKey !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
         state.selectedProject = project; state.summary = summary; state.assets = assets; state.tasks = tasks; state.chapters = chapters; state.productionConsole = productionConsole; state.criticalPath = criticalPath; state.foreshadowing = foreshadowing.items || []; state.timeline = timeline.items || []; state.pacingCurve = pacingCurve; state.qualityExperiments = qualityExperiments; state.rules = rules; state.trash = trash; state.latestReview = null;
         const selectedExists = state.selectedAssetId && state.assets.some((asset) => asset.asset_id === state.selectedAssetId);
-        if (!selectedExists) state.selectedAssetId = state.assets[0]?.asset_id || null;
+        if (!selectedExists) state.selectedAssetId = pickDefaultAuthorAsset(state.assets)?.asset_id || null;
         renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderCriticalPath(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null); renderTrash(); renderAutoModeToggle(project.auto_mode ?? true);
         await renderStyleProfile(projectId, branch);
       }
