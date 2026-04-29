@@ -1,5 +1,7 @@
 """Tests for ContentQualityEngine and review integration."""
 
+import pytest
+
 from storyforge.config import LlmConfig
 from storyforge.domain.models import Asset, AssetType, ConfigSnapshot, Project
 from storyforge.execution.generators import StoryForgeGenerators
@@ -12,6 +14,49 @@ def _repeat_sentence(sentence: str, times: int) -> str:
     return " ".join([sentence] * times)
 
 
+def test_skip_llm_generators_default_to_chinese_assets() -> None:
+    store = InMemoryStoryForgeStore()
+    project = store.create_project(
+        Project(
+            idea="废土修理师在机械遗迹中重建失落城邦",
+            target_length=6,
+        )
+    )
+    generators = StoryForgeGenerators(store, LlmConfig(skip_llm=True))
+
+    brief = store.save_asset(generators.generate_brief(project))
+    outline = store.save_asset(generators.generate_outline(project, brief))
+    chapter = store.save_asset(generators.generate_chapter(project, outline, brief, 1))
+    review = generators.generate_review(project, chapter, 1)
+
+    assert "标题：" in brief.content
+    assert "类型：玄幻" in brief.content
+    assert "目标读者：中文网文读者" in brief.content
+    assert "故事框架：" in brief.content
+    assert "Title:" not in brief.content
+    assert "Summary:" not in brief.content
+    assert "项目：" in outline.content
+    assert "第 1 卷大纲" in outline.content
+    assert "第 1 章：" in outline.content
+    assert "Chapter" not in outline.content
+    assert chapter.content.startswith("第 1 章：")
+    assert "“退后。”" in chapter.content
+    assert "否则" in chapter.content
+    assert "代价" in chapter.content
+    assert "沈砚" in chapter.content
+    assert "陆青鸢" in chapter.content
+    assert "下一刻" in chapter.content
+    assert "身后" in chapter.content
+    assert "本章核心并不是等待命运降临" not in chapter.content
+    assert brief.structured_data["summary"] not in chapter.content
+    assert "主角" not in chapter.content
+    assert "对手" not in chapter.content
+    assert "Core beat" not in chapter.content
+    assert review.content.startswith("第 1 章审稿结果：")
+    assert "下一步：" in review.content
+    assert "Next step" not in review.content
+
+
 def test_repetition_detects_exact_repeats():
     engine = ContentQualityEngine()
     repeated = _repeat_sentence("The protagonist walked through the dark corridor.", 3)
@@ -19,7 +64,7 @@ def test_repetition_detects_exact_repeats():
     checks = engine.analyze(content)
     repetition = next(c for c in checks if c.name == "repetition")
     assert not repetition.passed
-    assert any("repeated" in issue.lower() for issue in repetition.issues)
+    assert any("句子重复" in issue for issue in repetition.issues)
 
 
 def test_repetition_passes_on_diverse_text():
@@ -41,7 +86,7 @@ def test_structure_detects_too_short():
     checks = engine.analyze("Too short.")
     structure = next(c for c in checks if c.name == "structure")
     assert not structure.passed
-    assert any("too short" in issue.lower() for issue in structure.issues)
+    assert any("章节篇幅过短" in issue for issue in structure.issues)
 
 
 def test_structure_detects_single_long_paragraph():
@@ -102,7 +147,7 @@ def test_cross_chapter_continuity_detects_dropped_names():
     checks = engine.analyze(current, previous_chapters=previous)
     continuity = next(c for c in checks if c.name == "cross_chapter_continuity")
     assert not continuity.passed
-    assert any("absent" in issue.lower() for issue in continuity.issues)
+    assert any("多数角色名未出现" in issue for issue in continuity.issues)
 
 
 def test_analyze_returns_all_checks():
@@ -118,6 +163,8 @@ def test_analyze_returns_all_checks():
     assert "ai_trace" in names
     assert "outline_deviation" in names
     assert "emotional_arc" in names
+    assert "web_novel_aesthetics" in names
+    assert "production_artifacts" in names
 
 
 def test_analyze_includes_cross_chapter_when_previous_provided():
@@ -125,6 +172,139 @@ def test_analyze_includes_cross_chapter_when_previous_provided():
     checks = engine.analyze("Some text.", previous_chapters=["Previous chapter content."])
     names = [c.name for c in checks]
     assert "cross_chapter_continuity" in names
+
+
+def test_web_novel_aesthetics_detects_summary_like_chinese_text() -> None:
+    engine = ContentQualityEngine()
+    content = (
+        "主角来到城市，了解了这里的背景和规则。故事继续推进，他开始思考未来应该如何行动。"
+        "这一章主要介绍世界观，也说明了人物关系和后续发展方向。"
+    )
+
+    checks = engine.analyze(content)
+    aesthetic = next(c for c in checks if c.name == "web_novel_aesthetics")
+
+    assert not aesthetic.passed
+    assert "缺少明确赌注：读者看不出失败会失去什么" in aesthetic.issues
+    assert "场景化不足：需要用动作、对话和感官细节推进正文" in aesthetic.issues
+    assert "缺少章末钩子：结尾没有新危机、反转或未解问题" in aesthetic.issues
+    assert aesthetic.details["has_stakes"] is False
+    assert aesthetic.details["has_scene_prose"] is False
+
+
+def test_web_novel_aesthetics_passes_scene_driven_chinese_text() -> None:
+    engine = ContentQualityEngine()
+    content = (
+        "门外的警报刚响，冷雨就打进破窗，金属地面泛起寒意。沈砚攥紧筹码，知道一旦交出去，最后的机会就会失去。\n\n"
+        "“退后。”陆青鸢把灯光压到他脸上，声音里带着威胁，“否则，你守着的人会先死。”\n\n"
+        "沈砚却没有退，脚步声逼近时反而把伤口按在墙上的旧锁孔。下一刻，屏幕上出现真正的债主名字，新的门在他身后打开。"
+    )
+
+    checks = engine.analyze(content)
+    aesthetic = next(c for c in checks if c.name == "web_novel_aesthetics")
+
+    assert aesthetic.passed
+    assert aesthetic.issues == []
+    assert aesthetic.details["has_hook"] is True
+    assert aesthetic.details["has_conflict"] is True
+    assert aesthetic.details["has_stakes"] is True
+    assert aesthetic.details["has_reversal"] is True
+    assert aesthetic.details["has_scene_prose"] is True
+    assert aesthetic.details["has_ending_hook"] is True
+
+
+def test_production_artifacts_blocks_placeholder_names_and_internal_markers() -> None:
+    engine = ContentQualityEngine()
+    content = (
+        "第 1 章：危机开场\n\n"
+        "门外的警报刚响第一声，冷雨就顺着裂开的窗缝打进来。主角攥紧最后一枚筹码，知道一旦交出去就会失去所有。\n\n"
+        "本章核心并不是等待命运降临，而是把选择推到眼前。\n\n"
+        "【修订强化】对手站在灯下，要求他交出筹码。\n"
+        "【对应指令】针对问题修订：情感曲线过于平坦"
+    )
+
+    checks = engine.analyze(content)
+    artifacts = next(c for c in checks if c.name == "production_artifacts")
+
+    assert artifacts.passed is False
+    assert any("内部写作/修订标记" in issue for issue in artifacts.issues)
+    assert any("占位角色称呼" in issue for issue in artifacts.issues)
+
+
+def test_production_artifacts_allows_natural_role_words_in_scene_prose() -> None:
+    engine = ContentQualityEngine()
+    content = (
+        "门外的警报刚响，冷雨就打进破窗。沈砚看见反派派来的枪手堵住巷口，知道一旦退让就会失去最后机会。\n\n"
+        "“别动。”陆青鸢把灯光压低，“你的对手不是我，是站在屏幕后面的债主。”\n\n"
+        "沈砚没有退。下一刻，真正的债主名字在屏幕上亮起，新的影子站在他身后。"
+    )
+
+    checks = engine.analyze(content)
+    artifacts = next(c for c in checks if c.name == "production_artifacts")
+
+    assert artifacts.passed is True
+    assert artifacts.issues == []
+
+
+def test_reaudit_fails_when_revision_does_not_reduce_existing_issues() -> None:
+    store = InMemoryStoryForgeStore()
+    project = store.create_project(Project(idea="废土追逃", brief="记忆代价"))
+    generators = StoryForgeGenerators(store, LlmConfig(skip_llm=True))
+    revised = Asset(
+        project_id=project.project_id,
+        asset_type=AssetType.chapter,
+        content=(
+            "门外的警报刚响，冷雨打进破窗，金属地面泛起寒意。沈砚攥紧筹码，知道一旦交出去，妹妹留下的录音就会被抹掉。\n\n"
+            "“退后。”陆青鸢把灯光压到他脸上，声音里带着威胁，“否则，你守着的维修棚会被封死。”\n\n"
+            "沈砚没有退，脚步声逼近时把伤口按在旧锁孔。下一刻，真正的城邦印记亮起，第三个人的影子站在他身后。"
+        ),
+        structured_data={"chapter_number": 1},
+    )
+    previous_validation = Asset(
+        project_id=project.project_id,
+        asset_type=AssetType.validation_report,
+        structured_data={
+            "issues": ["情感曲线过于平坦，缺乏起伏"],
+            "blocking_issues": [],
+            "failed_checks": ["emotional_arc"],
+            "checks": {"emotional_arc": {"passed": False, "issues": ["情感曲线过于平坦，缺乏起伏"], "details": {}}},
+        },
+    )
+    previous_audit = Asset(project_id=project.project_id, asset_type=AssetType.audit_report, structured_data={"kind": "audit"})
+    revision_delta = Asset(project_id=project.project_id, asset_type=AssetType.revision_delta)
+
+    reaudit = generators.generate_reaudit_report(project, revised, revision_delta, previous_validation, previous_audit, 1, [])
+
+    assert reaudit.structured_data["passed"] is False
+    assert reaudit.structured_data["improved"] is False
+    assert reaudit.structured_data["remaining_issues"] == ["情感曲线过于平坦，缺乏起伏"]
+
+
+def test_final_chapter_rejects_internal_revision_markers() -> None:
+    store = InMemoryStoryForgeStore()
+    project = store.create_project(Project(idea="废土追逃", brief="记忆代价"))
+    generators = StoryForgeGenerators(store, LlmConfig(skip_llm=True))
+    revised = Asset(
+        project_id=project.project_id,
+        asset_type=AssetType.chapter,
+        content="第 1 章\n\n【修订强化】沈砚补强冲突。\n【对应指令】针对问题修订。",
+        structured_data={"chapter_number": 1},
+    )
+    reaudit = Asset(project_id=project.project_id, asset_type=AssetType.audit_report, structured_data={"kind": "re_audit", "passed": True, "chapter_number": 1})
+
+    with pytest.raises(ValueError, match="内部写作"):
+        generators.generate_final_chapter(project, revised, reaudit, 1)
+
+
+def test_final_chapter_requires_passed_reaudit_report() -> None:
+    store = InMemoryStoryForgeStore()
+    project = store.create_project(Project(idea="废土追逃", brief="记忆代价"))
+    generators = StoryForgeGenerators(store, LlmConfig(skip_llm=True))
+    revised = Asset(project_id=project.project_id, asset_type=AssetType.chapter, content="第 1 章\n\n沈砚在雨里完成选择。", structured_data={"chapter_number": 1})
+    failed_reaudit = Asset(project_id=project.project_id, asset_type=AssetType.audit_report, structured_data={"kind": "re_audit", "passed": False, "chapter_number": 1})
+
+    with pytest.raises(ValueError, match="Re-audit did not pass"):
+        generators.generate_final_chapter(project, revised, failed_reaudit, 1)
 
 
 def test_generator_load_asset_by_id_uses_store_lookup():
@@ -167,7 +347,7 @@ def test_style_profile_prefers_human_revisions() -> None:
 
     assert profile["preferred_source"] == "human"
     assert profile["sample_count"] == 1
-    assert "rust" in " ".join(profile["sensory_keywords"])
+    assert "锈迹" in " ".join(profile["sensory_keywords"])
 
 
 
@@ -196,8 +376,8 @@ def test_style_profile_uses_only_human_samples_when_available() -> None:
 
     profile = generators._build_style_profile(project.project_id)
 
-    assert "rust" in profile["sensory_keywords"]
-    assert "metal" not in profile["sensory_keywords"]
+    assert "锈迹" in profile["sensory_keywords"]
+    assert "金属" not in profile["sensory_keywords"]
 
 
 
@@ -224,7 +404,7 @@ def test_style_profile_uses_latest_three_chapters_in_chapter_order() -> None:
     profile = generators._build_style_profile(project.project_id)
 
     assert profile["sample_count"] == 3
-    assert "cold" not in profile["sensory_keywords"]
+    assert "寒意" not in profile["sensory_keywords"]
 
 
 
@@ -302,8 +482,8 @@ def test_fallback_review_rejects_when_structure_fails():
     review = generators.generate_review(project, chapter, 1)
 
     assert review.structured_data["approved"] is False
-    assert "chapter has no outline reference" in review.structured_data["issues"]
-    assert "chapter has no brief reference" in review.structured_data["issues"]
+    assert "章节缺少大纲引用" in review.structured_data["issues"]
+    assert "章节缺少项目概要引用" in review.structured_data["issues"]
 
 
 
@@ -454,7 +634,7 @@ def test_review_asset_includes_rule_audit_results() -> None:
             "name": "禁用词",
             "layer": "custom",
             "passed": False,
-            "issues": ["Rule '禁用词' forbids term: ForbiddenTerm"],
+            "issues": ["规则“禁用词”禁止出现：ForbiddenTerm"],
         }
     ]
     assert "rule:禁用词" in review.structured_data["failed_checks"]
@@ -523,8 +703,8 @@ def test_style_profile_filters_by_branch() -> None:
 
     profile = generators._build_style_profile(project.project_id, branch="alt")
 
-    assert "cold" in profile["sensory_keywords"]
-    assert "rust" not in profile["sensory_keywords"]
+    assert "寒意" in profile["sensory_keywords"]
+    assert "锈迹" not in profile["sensory_keywords"]
 
 
 def test_style_profile_applies_locked_override_asset_by_branch() -> None:
@@ -540,7 +720,7 @@ def test_style_profile_applies_locked_override_asset_by_branch() -> None:
             structured_data={
                 "kind": "style_profile",
                 "voice": "locked close third",
-                "avoid": ["flat exposition"],
+                "avoid": ["平铺直叙"],
                 "sensory_keywords": ["ash", "rain"],
                 "locked_fields": ["voice", "avoid", "sensory_keywords"],
             },
@@ -551,7 +731,7 @@ def test_style_profile_applies_locked_override_asset_by_branch() -> None:
     profile = generators._build_style_profile(project.project_id, branch="alt")
 
     assert profile["voice"] == "locked close third"
-    assert profile["avoid"] == ["flat exposition"]
+    assert profile["avoid"] == ["平铺直叙"]
     assert profile["sensory_keywords"] == ["ash", "rain"]
     assert profile["sample_count"] == 1
 
@@ -581,6 +761,28 @@ def test_style_profile_keeps_locked_override_when_samples_are_blank() -> None:
     assert profile["locked_fields"] == ["voice"]
 
 
+def test_style_profile_extracts_chinese_sensory_keywords() -> None:
+    store = InMemoryStoryForgeStore()
+    project = store.create_project(Project(idea="idea"))
+    store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            source="human",
+            content="雨声压低了呼吸，锈迹和烟气贴着墙面蔓延。下一刻，新的影子站在身后。",
+            structured_data={"chapter_number": 1},
+        )
+    )
+    generators = StoryForgeGenerators(store, LlmConfig(skip_llm=True))
+
+    profile = generators._build_style_profile(project.project_id)
+
+    assert "雨声" in profile["sensory_keywords"]
+    assert "锈迹" in profile["sensory_keywords"]
+    assert "章末钩子明确" in profile["strengths"]
+
+
+
 def test_style_profile_ignores_deleted_chapter_samples() -> None:
     store = InMemoryStoryForgeStore()
     project = store.create_project(Project(idea="idea", branches=["main", "alt"]))
@@ -590,6 +792,6 @@ def test_style_profile_ignores_deleted_chapter_samples() -> None:
 
     profile = generators._build_style_profile(project.project_id, branch="alt")
 
-    assert "cold" in profile["sensory_keywords"]
-    assert "rust" not in profile["sensory_keywords"]
+    assert "寒意" in profile["sensory_keywords"]
+    assert "锈迹" not in profile["sensory_keywords"]
     assert profile["sample_count"] == 1

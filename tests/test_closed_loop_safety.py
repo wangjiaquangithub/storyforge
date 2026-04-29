@@ -5,6 +5,16 @@ from storyforge.domain.models import Asset, AssetType, TaskRecord, TaskStatus, T
 from storyforge.execution.store import InMemoryStoryForgeStore
 
 
+BOOTSTRAP_ASSET_TYPES = {
+    "world",
+    "characters",
+    "rules",
+    "timeline",
+    "style_profile",
+    "foreshadowing",
+}
+
+
 def test_downstream_tasks_record_correct_input_asset_refs() -> None:
     with TestClient(create_app(store=InMemoryStoryForgeStore())) as client:
         project = client.post(
@@ -25,24 +35,35 @@ def test_downstream_tasks_record_correct_input_asset_refs() -> None:
         # brief has no upstream deps
         assert task_by_type["brief_generation"]["input_asset_refs"] == []
 
-        # outline depends on brief
-        outline_refs = task_by_type["outline_generation"]["input_asset_refs"]
-        assert len(outline_refs) == 1
+        # asset bootstrap depends on brief
+        bootstrap_refs = task_by_type["asset_bootstrap"]["input_asset_refs"]
         brief_asset_id = task_by_type["brief_generation"]["output_refs"][0]
-        assert brief_asset_id in outline_refs
+        assert bootstrap_refs == [brief_asset_id]
 
-        # chapter depends on outline and brief
+        # outline depends on brief and the frozen story bible assets
+        outline_refs = task_by_type["outline_generation"]["input_asset_refs"]
+        bootstrap_output_ids = task_by_type["asset_bootstrap"]["output_refs"]
+        assert set(outline_refs) == {brief_asset_id, *bootstrap_output_ids}
+
+        # chapter depends on outline, brief, and bootstrap assets
         chapter_refs = task_by_type["chapter_generation"]["input_asset_refs"]
-        assert len(chapter_refs) == 2
         outline_asset_id = task_by_type["outline_generation"]["output_refs"][0]
-        assert outline_asset_id in chapter_refs
-        assert brief_asset_id in chapter_refs
+        assert set(chapter_refs) == {outline_asset_id, brief_asset_id, *bootstrap_output_ids}
 
-        # review depends on chapter
-        review_refs = task_by_type["chapter_review"]["input_asset_refs"]
-        assert len(review_refs) == 1
-        chapter_asset_id = task_by_type["chapter_generation"]["output_refs"][0]
-        assert chapter_asset_id in review_refs
+        # validation/audit/revision/re-audit/final/export gate each freeze their immediate upstream outputs
+        draft_asset_id = task_by_type["chapter_generation"]["output_refs"][0]
+        validation_asset_id = task_by_type["chapter_validation"]["output_refs"][0]
+        audit_asset_id = task_by_type["chapter_audit"]["output_refs"][0]
+        revised_asset_id, revision_delta_id = task_by_type["chapter_revision"]["output_refs"]
+        reaudit_asset_id = task_by_type["chapter_reaudit"]["output_refs"][0]
+        final_asset_id = task_by_type["final_save"]["output_refs"][0]
+
+        assert draft_asset_id in task_by_type["chapter_validation"]["input_asset_refs"]
+        assert validation_asset_id in task_by_type["chapter_audit"]["input_asset_refs"]
+        assert {draft_asset_id, validation_asset_id, audit_asset_id}.issubset(task_by_type["chapter_revision"]["input_asset_refs"])
+        assert {revised_asset_id, revision_delta_id, validation_asset_id, audit_asset_id}.issubset(task_by_type["chapter_reaudit"]["input_asset_refs"])
+        assert {revised_asset_id, revision_delta_id, reaudit_asset_id}.issubset(task_by_type["final_save"]["input_asset_refs"])
+        assert task_by_type["export_candidate"]["input_asset_refs"] == [final_asset_id]
 
 
 def test_cross_project_input_asset_ref_is_rejected() -> None:
@@ -185,7 +206,7 @@ def test_retry_uses_frozen_input_not_latest_asset() -> None:
         assert retried_task["input_asset_refs"] == frozen_refs
 
 
-def test_review_binds_to_correct_chapter_output() -> None:
+def test_quality_gates_bind_to_correct_chapter_output() -> None:
     with TestClient(create_app(store=InMemoryStoryForgeStore())) as client:
         project = client.post(
             "/api/projects",
@@ -202,17 +223,23 @@ def test_review_binds_to_correct_chapter_output() -> None:
         tasks = client.get(f"/api/projects/{project_id}/tasks").json()
         task_by_type = {t["task_type"]: t for t in tasks}
 
-        review_task = task_by_type["chapter_review"]
+        validation_task = task_by_type["chapter_validation"]
+        audit_task = task_by_type["chapter_audit"]
         chapter_output = task_by_type["chapter_generation"]["output_refs"][0]
 
-        assert chapter_output in review_task["input_asset_refs"]
+        assert chapter_output in validation_task["input_asset_refs"]
+        assert chapter_output in audit_task["input_asset_refs"]
 
-        review_asset_id = review_task["output_refs"][0]
+        validation_asset_id = validation_task["output_refs"][0]
+        audit_asset_id = audit_task["output_refs"][0]
         assets = client.get(f"/api/projects/{project_id}/assets").json()
-        review_asset = next(a for a in assets if a["asset_id"] == review_asset_id)
-        assert review_asset["structured_data"]["chapter_ref"] == chapter_output
-        assert review_asset["structured_data"]["approved"] is True
-        assert "issues" in review_asset["structured_data"]
+        validation_asset = next(a for a in assets if a["asset_id"] == validation_asset_id)
+        audit_asset = next(a for a in assets if a["asset_id"] == audit_asset_id)
+        assert validation_asset["structured_data"]["chapter_ref"] == chapter_output
+        assert validation_asset["structured_data"]["passed"] is True
+        assert "issues" in validation_asset["structured_data"]
+        assert audit_asset["structured_data"]["chapter_ref"] == chapter_output
+        assert "revision_instructions" in audit_asset["structured_data"]
 
 
 def test_partial_failure_leaves_project_state_consistent() -> None:
@@ -233,11 +260,13 @@ def test_partial_failure_leaves_project_state_consistent() -> None:
         assert all(t["status"] == "completed" for t in tasks)
 
         project_state = client.get(f"/api/projects/{project_id}").json()
-        assert project_state["current_phase"] == "review"
+        assert project_state["current_phase"] == "publishing"
         assert project_state["latest_chapter_cursor"] == 1
 
         assets = client.get(f"/api/projects/{project_id}/assets").json()
-        assert len(assets) == 4
+        assert len(assets) == 16
+        assert assets[-2]["asset_type"] == "final_chapter"
+        assert assets[-1]["asset_type"] == "export_candidate"
 
 
 def test_config_snapshot_is_frozen_at_queue_time() -> None:
@@ -280,7 +309,7 @@ def test_config_snapshot_preserves_zero_retry_limit() -> None:
         task = client.post(
             f"/api/projects/{project_id}/tasks",
             json={
-                "task_type": "chapter_review",
+                "task_type": "chapter_audit",
                 "payload": {"chapter_number": 1},
                 "config": {
                     "retry_limit": 0,

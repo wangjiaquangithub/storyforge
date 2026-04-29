@@ -21,10 +21,10 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--idea", required=True, help="Creative seed for the project")
-@click.option("--title", default="", help="Project title (auto-generated if empty)")
-@click.option("--genre", default="", help="Genre (e.g. progression fantasy)")
-@click.option("--target-length", default=0, type=int, help="Target number of chapters")
+@click.option("--idea", required=True, help="项目创意种子")
+@click.option("--title", default="", help="项目标题（留空则自动生成）")
+@click.option("--genre", default="", help="类型（例如：玄幻/都市异能/悬疑）")
+@click.option("--target-length", default=0, type=int, help="目标章节数")
 def create(idea: str, title: str, genre: str, target_length: int) -> None:
     """Create a new project."""
     payload = {
@@ -45,7 +45,7 @@ def create(idea: str, title: str, genre: str, target_length: int) -> None:
         click.echo(f"Error: {exc.response.status_code} {exc.response.text}")
         sys.exit(1)
 
-    click.echo(f"Created project: {project['project_id']}")
+    click.echo(f"已创建项目：{project['project_id']}")
 
 
 @cli.command()
@@ -53,7 +53,7 @@ def create(idea: str, title: str, genre: str, target_length: int) -> None:
 @click.option("--chapter", default=1, type=int, help="Starting chapter number")
 @click.option("--run", is_flag=True, help="Auto-run the pipeline (drain immediately)")
 def start(project_id: str, chapter: int, run: bool) -> None:
-    """Start the first loop (brief -> outline -> chapter -> review)."""
+    """Start the critical path through export candidate."""
     payload = {"chapter_number": chapter, "auto_run": run}
     try:
         with _client() as client:
@@ -81,6 +81,9 @@ def project_status(project_id: str) -> None:
             resp = client.get(f"/api/projects/{project_id}/summary")
             resp.raise_for_status()
             summary = resp.json()
+            path_resp = client.get(f"/api/projects/{project_id}/critical-path")
+            path_resp.raise_for_status()
+            critical_path = path_resp.json()
     except httpx.ConnectError:
         click.echo("Error: cannot connect to StoryForge API.")
         sys.exit(1)
@@ -89,7 +92,7 @@ def project_status(project_id: str) -> None:
         sys.exit(1)
 
     ts = summary["task_summary"]
-    click.echo(f"Project: {summary['project_id']}")
+    click.echo(f"项目：{summary['project_id']}")
     click.echo(f"Total tasks: {ts['total']}")
     click.echo(f"  completed: {ts['completed']}")
     click.echo(f"  queued: {ts['queued']}")
@@ -99,6 +102,15 @@ def project_status(project_id: str) -> None:
 
     if summary["latest_event_message"]:
         click.echo(f"Latest event: {summary['latest_event_type']} - {summary['latest_event_message']}")
+
+    click.echo("Critical path:")
+    for stage in critical_path.get("critical_path", []):
+        marker = "OK" if stage.get("status") == "completed" else "  "
+        blocked = stage.get("blocked_reason") or ""
+        suffix = f" - {blocked}" if blocked else ""
+        click.echo(f"  [{marker}] {stage['stage']}: {stage['status']}{suffix}")
+    if not critical_path.get("export_ready"):
+        click.echo(f"Export blocked: {critical_path.get('export_blocked_reason', 'unknown')}")
 
     fs = summary.get("failure_summary", {})
     if fs.get("failed_task_ids"):
@@ -178,9 +190,28 @@ def drain(project_id: str) -> None:
 
 @cli.command()
 @click.argument("project_id")
+@click.option("--format", "export_format", default="markdown", type=click.Choice(["markdown", "text", "qidian", "jinjiang"]), help="导出格式")
+def export(project_id: str, export_format: str) -> None:
+    """Export only when a ready export candidate exists."""
+    try:
+        with _client() as client:
+            resp = client.post(f"/api/projects/{project_id}/export", json={"format": export_format, "branch": "main"})
+            resp.raise_for_status()
+    except httpx.ConnectError:
+        click.echo("Error: cannot connect to StoryForge API.")
+        sys.exit(1)
+    except httpx.HTTPStatusError as exc:
+        click.echo(f"Error: {exc.response.status_code} {exc.response.text}")
+        sys.exit(1)
+
+    click.echo(resp.text)
+
+
+@cli.command()
+@click.argument("project_id")
 @click.argument("chapter_number", type=int)
 def read(project_id: str, chapter_number: int) -> None:
-    """Read a chapter's full text."""
+    """Read a finalized chapter's full text."""
     try:
         with _client() as client:
             # Get chapters list to find the asset_id
@@ -190,15 +221,15 @@ def read(project_id: str, chapter_number: int) -> None:
 
             chapter_info = next((ch for ch in chapter_list if ch["chapter_number"] == chapter_number), None)
             if chapter_info is None:
-                click.echo(f"Chapter {chapter_number} not found")
+                click.echo(f"未找到第 {chapter_number} 章")
                 sys.exit(1)
 
             asset_id = chapter_info.get("asset_id")
             if asset_id is None:
-                click.echo(f"Chapter {chapter_number} has not been generated yet")
+                click.echo(f"第 {chapter_number} 章尚未定稿")
                 sys.exit(1)
 
-            versions_resp = client.get(f"/api/projects/{project_id}/assets/chapter/versions")
+            versions_resp = client.get(f"/api/projects/{project_id}/assets/final_chapter/versions")
             versions_resp.raise_for_status()
             assets = versions_resp.json()
 
@@ -207,7 +238,7 @@ def read(project_id: str, chapter_number: int) -> None:
                     click.echo(asset["content"])
                     return
 
-            click.echo(f"Chapter asset {asset_id} not found")
+            click.echo(f"未找到定稿章节资产 {asset_id}")
             sys.exit(1)
     except httpx.ConnectError:
         click.echo("Error: cannot connect to StoryForge API.")

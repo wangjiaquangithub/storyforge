@@ -28,12 +28,21 @@ def test_queued_child_is_cancelled_when_parent_fails() -> None:
 
         tasks = client.get(f"/api/projects/{project_id}/tasks").json()
         by_type = {task["task_type"]: task for task in tasks}
-        assert by_type["outline_generation"]["status"] == "failed"
-        assert by_type["chapter_generation"]["status"] == "cancelled"
-        assert "Parent task" in by_type["chapter_generation"]["error"]
-        assert by_type["chapter_review"]["status"] == "cancelled"
+        assert by_type["asset_bootstrap"]["status"] == "failed"
+        for task_type in [
+            "outline_generation",
+            "chapter_generation",
+            "chapter_validation",
+            "chapter_audit",
+            "chapter_revision",
+            "chapter_reaudit",
+            "final_save",
+            "export_candidate",
+        ]:
+            assert by_type[task_type]["status"] == "cancelled"
+            assert "Parent task" in by_type[task_type]["error"]
 
-        child_events = client.get(f"/api/tasks/{by_type['chapter_generation']['task_id']}/events").json()
+        child_events = client.get(f"/api/tasks/{by_type['outline_generation']['task_id']}/events").json()
         assert child_events[-1]["event_type"] == "cancelled"
         assert child_events[-1]["payload"]["parent_status"] == "failed"
 
@@ -47,6 +56,7 @@ def test_queued_child_is_cancelled_when_parent_is_cancelled() -> None:
         tasks = client.post(f"/api/projects/{project_id}/runs/first-loop", json={"chapter_number": 1}).json()
         outline_task = next(task for task in tasks if task["task_type"] == "outline_generation")
         chapter_task = next(task for task in tasks if task["task_type"] == "chapter_generation")
+        validation_task = next(task for task in tasks if task["task_type"] == "chapter_validation")
 
         cancel_response = client.post(f"/api/tasks/{outline_task['task_id']}/cancel")
         assert cancel_response.status_code == 200
@@ -58,12 +68,20 @@ def test_queued_child_is_cancelled_when_parent_is_cancelled() -> None:
 
         second_process = client.post(f"/api/projects/{project_id}/workers/process-next")
         assert second_process.status_code == 200
-        assert second_process.json() is None
+        assert second_process.json()["task_type"] == "asset_bootstrap"
+
+        third_process = client.post(f"/api/projects/{project_id}/workers/process-next")
+        assert third_process.status_code == 200
+        assert third_process.json() is None
 
         stored_child = store.get_task(chapter_task["task_id"])
         assert stored_child is not None
         assert stored_child.status == TaskStatus.cancelled
         assert "Parent task" in (stored_child.error or "")
+        stored_grandchild = store.get_task(validation_task["task_id"])
+        assert stored_grandchild is not None
+        assert stored_grandchild.status == TaskStatus.cancelled
+        assert "Parent task" in (stored_grandchild.error or "")
 
 
 def test_cancel_queued_task() -> None:

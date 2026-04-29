@@ -30,7 +30,7 @@ def test_create_command_success():
 
         with patch("click.echo") as echo:
             cli(["create", "--idea", "test"], standalone_mode=False)
-            echo.assert_called_with("Created project: proj_abc123")
+            echo.assert_called_with("已创建项目：proj_abc123")
 
 
 def test_create_command_connection_error():
@@ -62,22 +62,31 @@ def test_start_command_lists_tasks():
 
 
 def test_status_command_shows_summary():
-    mock_resp = _mock_response(json_data={
+    summary_resp = _mock_response(json_data={
         "project_id": "proj_abc",
-        "task_summary": {"total": 4, "completed": 4, "queued": 0, "running": 0, "failed": 0, "waiting_retry": 0, "accepted": 0, "cancelled": 0},
+        "task_summary": {"total": 10, "completed": 10, "queued": 0, "running": 0, "failed": 0, "waiting_retry": 0, "accepted": 0, "cancelled": 0},
         "latest_event_message": "Task completed",
         "latest_event_type": "completed",
         "failure_summary": {"failed_task_ids": [], "waiting_retry_task_ids": [], "last_error_by_task": {}},
     })
+    critical_resp = _mock_response(json_data={
+        "critical_path": [
+            {"stage": "brief", "status": "completed", "blocked_reason": ""},
+            {"stage": "export_candidate", "status": "completed", "blocked_reason": ""},
+        ],
+        "export_ready": True,
+        "export_blocked_reason": "",
+    })
     with patch("storyforge.cli.main._client") as mock_client_ctx:
         ctx = MagicMock()
-        ctx.get.return_value = mock_resp
+        ctx.get.side_effect = [summary_resp, critical_resp]
         mock_client_ctx.return_value.__enter__ = MagicMock(return_value=ctx)
         mock_client_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         with patch("click.echo") as echo:
             cli(["status", "proj_abc"], standalone_mode=False)
             assert any("completed" in str(call) for call in echo.call_args_list)
+            assert any("Critical path" in str(call) for call in echo.call_args_list)
 
 
 def test_chapters_command_shows_list():
@@ -122,7 +131,7 @@ def test_read_command_outputs_requested_chapter_content():
     def get_side_effect(url):
         if url == "/api/projects/proj_abc/chapters":
             return chapters_resp
-        if url == "/api/projects/proj_abc/assets/chapter/versions":
+        if url == "/api/projects/proj_abc/assets/final_chapter/versions":
             return versions_resp
         raise AssertionError(f"unexpected GET {url}")
 
@@ -137,7 +146,7 @@ def test_read_command_outputs_requested_chapter_content():
             echo.assert_called_with("Chapter two body")
             assert ctx.get.call_args_list == [
                 call("/api/projects/proj_abc/chapters"),
-                call("/api/projects/proj_abc/assets/chapter/versions"),
+                call("/api/projects/proj_abc/assets/final_chapter/versions"),
             ]
 
 

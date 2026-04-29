@@ -30,6 +30,7 @@ from storyforge.domain.models import (
     TaskType,
     utc_now,
 )
+from storyforge.execution.quality import find_production_artifact_issues
 from storyforge.execution.runtime import WorkerRuntime
 from storyforge.execution.state_machine import TaskStateMachine
 from storyforge.execution.store import StoryForgeStore
@@ -1342,7 +1343,32 @@ def _coerce_chapter_number(value: object) -> int | None:
 
 
 def _chapter_title(chapter: Asset, chapter_number: int) -> str:
-    return str(chapter.structured_data.get("title") or f"Chapter {chapter_number}")
+    return str(chapter.structured_data.get("title") or f"第 {chapter_number} 章")
+
+
+
+def _chapter_body_without_heading(chapter: Asset, chapter_number: int, title: str) -> str:
+    content = chapter.content
+    lines = content.splitlines(keepends=True)
+    if not lines:
+        return content
+    first_line = lines[0].rstrip("\r\n")
+    if not _is_duplicate_chapter_heading(first_line, chapter_number, title):
+        return content
+    return "".join(lines[1:]).lstrip("\r\n")
+
+
+
+def _is_duplicate_chapter_heading(line: str, chapter_number: int, title: str) -> bool:
+    markdown_match = re.fullmatch(r" {0,3}#{1,6}(?:[ \t]+|$)(.*?)(?:[ \t]+#+[ \t]*)?", line)
+    normalized = markdown_match.group(1).strip() if markdown_match else line.strip()
+    return normalized in {
+        f"第 {chapter_number} 章：{title}",
+        f"第{chapter_number}章 {title}",
+        f"第{chapter_number}章：{title}",
+        f"第 {chapter_number} 章 {title}",
+        f"【章节 {chapter_number}】{title}",
+    }
 
 
 
@@ -1378,16 +1404,16 @@ def _sanitize_download_filename(value: str) -> str:
 
 
 def _render_markdown_export(project: Project, chapters: list[Asset]) -> str:
-    lines = [f"# {project.title or 'Untitled Project'}", ""]
+    lines = [f"# {project.title or '未命名项目'}", ""]
     if project.idea:
         lines.extend([f"> {project.idea}", ""])
     for chapter in chapters:
         chapter_number = int(chapter.structured_data.get("chapter_number", 0))
         title = _chapter_title(chapter, chapter_number)
         lines.extend([
-            f"## Chapter {chapter_number}: {title}",
+            f"## 第 {chapter_number} 章：{title}",
             "",
-            chapter.content,
+            _chapter_body_without_heading(chapter, chapter_number, title),
             "",
         ])
     return "\n".join(lines).strip() + "\n"
@@ -1395,15 +1421,15 @@ def _render_markdown_export(project: Project, chapters: list[Asset]) -> str:
 
 
 def _render_text_export(project: Project, chapters: list[Asset]) -> str:
-    lines = [project.title or "Untitled Project", ""]
+    lines = [project.title or "未命名项目", ""]
     if project.idea:
         lines.extend([project.idea, ""])
     for chapter in chapters:
         chapter_number = int(chapter.structured_data.get("chapter_number", 0))
         title = _chapter_title(chapter, chapter_number)
         lines.extend([
-            f"Chapter {chapter_number}: {title}",
-            chapter.content,
+            f"第 {chapter_number} 章：{title}",
+            _chapter_body_without_heading(chapter, chapter_number, title),
             "",
         ])
     return "\n".join(lines).strip() + "\n"
@@ -1411,7 +1437,7 @@ def _render_text_export(project: Project, chapters: list[Asset]) -> str:
 
 
 def _render_qidian_export(project: Project, chapters: list[Asset]) -> str:
-    lines = [f"《{project.title or 'Untitled Project'}》", ""]
+    lines = [f"《{project.title or '未命名项目'}》", ""]
     if project.idea:
         lines.extend([project.idea, ""])
     for chapter in chapters:
@@ -1419,7 +1445,7 @@ def _render_qidian_export(project: Project, chapters: list[Asset]) -> str:
         title = _chapter_title(chapter, chapter_number)
         lines.extend([
             f"第{chapter_number}章 {title}",
-            chapter.content,
+            _chapter_body_without_heading(chapter, chapter_number, title),
             "",
         ])
     return "\n".join(lines).strip() + "\n"
@@ -1427,7 +1453,7 @@ def _render_qidian_export(project: Project, chapters: list[Asset]) -> str:
 
 
 def _render_jinjiang_export(project: Project, chapters: list[Asset]) -> str:
-    lines = [f"【作品名】{project.title or 'Untitled Project'}", ""]
+    lines = [f"【作品名】{project.title or '未命名项目'}", ""]
     if project.idea:
         lines.extend([f"【文案】{project.idea}", ""])
     for chapter in chapters:
@@ -1435,7 +1461,7 @@ def _render_jinjiang_export(project: Project, chapters: list[Asset]) -> str:
         title = _chapter_title(chapter, chapter_number)
         lines.extend([
             f"【章节 {chapter_number}】{title}",
-            chapter.content,
+            _chapter_body_without_heading(chapter, chapter_number, title),
             "",
         ])
     return "\n".join(lines).strip() + "\n"
@@ -1505,6 +1531,36 @@ EXPORTERS: dict[str, tuple[str, str, Callable[[Project, list[Asset]], str]]] = {
     "text": ("text/plain; charset=utf-8", "txt", _render_text_export),
     "qidian": ("text/plain; charset=utf-8", "txt", _render_qidian_export),
     "jinjiang": ("text/plain; charset=utf-8", "txt", _render_jinjiang_export),
+}
+
+BOOTSTRAP_ASSET_TYPES = (
+    AssetType.world,
+    AssetType.characters,
+    AssetType.rules,
+    AssetType.timeline,
+    AssetType.style_profile,
+    AssetType.foreshadowing,
+)
+
+CRITICAL_PATH_STAGES: tuple[tuple[str, TaskType, tuple[AssetType, ...]], ...] = (
+    ("brief", TaskType.brief_generation, (AssetType.brief,)),
+    ("asset_bootstrap", TaskType.asset_bootstrap, BOOTSTRAP_ASSET_TYPES),
+    ("outline", TaskType.outline_generation, (AssetType.outline,)),
+    ("chapter_draft", TaskType.chapter_generation, (AssetType.chapter,)),
+    ("validation", TaskType.chapter_validation, (AssetType.validation_report,)),
+    ("audit", TaskType.chapter_audit, (AssetType.audit_report,)),
+    ("revise", TaskType.chapter_revision, (AssetType.chapter, AssetType.revision_delta)),
+    ("re_audit", TaskType.chapter_reaudit, (AssetType.audit_report,)),
+    ("final_save", TaskType.final_save, (AssetType.final_chapter,)),
+    ("export_candidate", TaskType.export_candidate, (AssetType.export_candidate,)),
+)
+
+SYSTEM_GATE_ASSET_TYPES = {
+    AssetType.validation_report,
+    AssetType.audit_report,
+    AssetType.revision_delta,
+    AssetType.final_chapter,
+    AssetType.export_candidate,
 }
 
 
@@ -1607,6 +1663,197 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
         visible = [asset for asset in latest.values() if not asset.is_deleted]
         return sorted(visible, key=lambda asset: (_timeline_asset_to_item(asset).chapter_number, _timeline_asset_to_item(asset).order_index, asset.created_at))
 
+    def _asset_summary(asset: Asset) -> dict:
+        chapter_number = _coerce_chapter_number(asset.structured_data.get("chapter_number"))
+        return {
+            "asset_id": asset.asset_id,
+            "asset_type": asset.asset_type.value,
+            "branch": asset.branch,
+            "version": asset.version,
+            "source": asset.source,
+            "chapter_number": chapter_number,
+            "title": str(asset.structured_data.get("title") or ""),
+            "kind": str(asset.structured_data.get("kind") or ""),
+            "passed": asset.structured_data.get("passed"),
+            "ready": asset.structured_data.get("ready"),
+            "blocked_reason": str(asset.structured_data.get("blocked_reason") or ""),
+            "created_at": asset.created_at.isoformat(),
+            "updated_at": asset.updated_at.isoformat(),
+        }
+
+    def _task_summary(task: TaskRecord) -> dict:
+        return {
+            "task_id": task.task_id,
+            "task_type": task.task_type.value,
+            "status": task.status.value,
+            "parent_task_id": task.parent_task_id,
+            "chapter_number": _coerce_chapter_number(task.payload.get("chapter_number")),
+            "progress": task.progress,
+            "error": task.error,
+            "input_asset_refs": task.input_asset_refs,
+            "output_refs": task.output_refs,
+        }
+
+    def _task_assets(task: TaskRecord, refs: list[str]) -> list[Asset]:
+        assets: list[Asset] = []
+        for ref in refs:
+            asset = state.store.get_asset_by_id(ref)
+            if asset is not None and asset.project_id == task.project_id and asset.branch == task.branch and not asset.is_deleted:
+                assets.append(asset)
+        return assets
+
+    def _critical_path_task(tasks: list[TaskRecord], task_type: TaskType, chapter_number: int) -> TaskRecord | None:
+        matches = [
+            task
+            for task in tasks
+            if task.task_type == task_type
+            and _coerce_chapter_number(task.payload.get("chapter_number")) == chapter_number
+            and not (task.task_type == TaskType.chapter_generation and task.payload.get("rewrite"))
+        ]
+        return matches[-1] if matches else None
+
+    def _latest_visible_asset(project_id: str, asset_type: AssetType, branch: str) -> Asset | None:
+        assets = [asset for asset in state.store.list_assets(project_id, asset_type, branch=branch) if not asset.is_deleted and not _is_spot_fix_candidate(asset)]
+        return assets[-1] if assets else None
+
+    def _critical_stage_gate(output_assets: list[Asset]) -> dict:
+        for asset in reversed(output_assets):
+            if asset.asset_type in {AssetType.validation_report, AssetType.audit_report, AssetType.export_candidate}:
+                data = asset.structured_data
+                return {
+                    "passed": data.get("passed"),
+                    "ready": data.get("ready"),
+                    "blocking_issues": data.get("blocking_issues", []),
+                    "blocked_reason": data.get("blocked_reason", ""),
+                    "improved": data.get("improved"),
+                    "current_issue_count": data.get("current_issue_count"),
+                    "previous_issue_count": data.get("previous_issue_count"),
+                }
+        return {}
+
+    def _critical_stage_blocker(task: TaskRecord | None, output_assets: list[Asset], expected_types: tuple[AssetType, ...]) -> str:
+        if task is None:
+            return "任务尚未排队"
+        if task.status in {TaskStatus.failed, TaskStatus.cancelled}:
+            return task.error or f"任务状态为 {task.status.value}"
+        if task.status == TaskStatus.completed:
+            output_types = {asset.asset_type for asset in output_assets}
+            missing = [asset_type.value for asset_type in expected_types if asset_type not in output_types]
+            if missing:
+                return "缺少阶段产物：" + "、".join(missing)
+            if task.task_type == TaskType.export_candidate:
+                candidate = next((asset for asset in output_assets if asset.asset_type == AssetType.export_candidate), None)
+                if candidate is not None and not candidate.structured_data.get("ready"):
+                    return str(candidate.structured_data.get("blocked_reason") or "导出候选未就绪")
+        if task.parent_task_id:
+            parent = state.store.get_task(task.parent_task_id)
+            if parent is not None and parent.status != TaskStatus.completed:
+                return f"等待上游任务 {parent.task_id}（{parent.status.value}）"
+        return ""
+
+    def _asset_order_key(asset: Asset) -> tuple[int, datetime, datetime]:
+        return (asset.version, asset.updated_at, asset.created_at)
+
+    def _source_chapter_ref(final_chapter: Asset) -> str:
+        value = final_chapter.structured_data.get("source_chapter_ref")
+        return value if isinstance(value, str) else ""
+
+    def _final_chapter_stale_reason(final_chapter: Asset) -> str:
+        chapter_number = _coerce_chapter_number(final_chapter.structured_data.get("chapter_number"))
+        if chapter_number is None:
+            return "定稿章节缺少有效章节号"
+        source_ref = _source_chapter_ref(final_chapter)
+        chapter_assets = [
+            asset
+            for asset in state.store.list_assets(final_chapter.project_id, AssetType.chapter, branch=final_chapter.branch)
+            if not _is_spot_fix_candidate(asset)
+            and _coerce_chapter_number(asset.structured_data.get("chapter_number")) == chapter_number
+        ]
+        source_asset = state.store.get_asset_by_id(source_ref) if source_ref else None
+        if source_asset is not None and source_asset.is_deleted and source_asset.structured_data.get("accepted_spot_fix_candidate_id"):
+            return f"第 {chapter_number} 章已接受定点修复，需重新复审并生成导出候选"
+        visible_chapters = [asset for asset in chapter_assets if not asset.is_deleted]
+        if visible_chapters:
+            latest_chapter = max(visible_chapters, key=_asset_order_key)
+            if latest_chapter.asset_id != source_ref:
+                if latest_chapter.structured_data.get("accepted_spot_fix_candidate_id"):
+                    return f"第 {chapter_number} 章已接受定点修复，需重新复审并生成导出候选"
+                return f"第 {chapter_number} 章定稿后有新的章节版本，需重新复审并生成导出候选"
+        deleted_accepted_spot_fixes = [
+            asset
+            for asset in chapter_assets
+            if asset.is_deleted and asset.structured_data.get("accepted_spot_fix_candidate_id") and asset.asset_id != source_ref
+        ]
+        if deleted_accepted_spot_fixes:
+            return f"第 {chapter_number} 章已接受定点修复，需重新复审并生成导出候选"
+        return ""
+
+    def _latest_final_chapter(project_id: str, branch: str, chapter_number: int) -> Asset | None:
+        finals = [
+            asset
+            for asset in state.store.list_assets(project_id, AssetType.final_chapter, branch=branch)
+            if not asset.is_deleted and _coerce_chapter_number(asset.structured_data.get("chapter_number")) == chapter_number
+        ]
+        return max(finals, key=_asset_order_key) if finals else None
+
+    def _ready_export_candidate(project_id: str, branch: str) -> tuple[Asset | None, str]:
+        candidates = [asset for asset in state.store.list_assets(project_id, AssetType.export_candidate, branch=branch) if not asset.is_deleted]
+        if not candidates:
+            return None, "尚未生成导出候选"
+        candidate = max(candidates, key=_asset_order_key)
+        tasks = state.store.list_tasks(project_id, branch=branch)
+        creator = next((task for task in tasks if candidate.asset_id in task.output_refs), None)
+        if creator is None or creator.task_type != TaskType.export_candidate or creator.status != TaskStatus.completed:
+            return None, "导出候选不是系统关键路径产物"
+        if not candidate.structured_data.get("ready"):
+            return None, str(candidate.structured_data.get("blocked_reason") or "导出候选未就绪")
+        refs = candidate.structured_data.get("final_chapter_refs", [])
+        if not isinstance(refs, list) or not refs:
+            return None, "导出候选缺少定稿章节引用"
+        raw_chapter_numbers: list[int] = []
+        for ref in refs:
+            if not isinstance(ref, str):
+                return None, "导出候选包含无效定稿章节引用"
+            candidate_asset = state.store.get_asset_by_id(ref)
+            if candidate_asset is None or candidate_asset.project_id != project_id or candidate_asset.branch != branch or candidate_asset.asset_type != AssetType.final_chapter or candidate_asset.is_deleted:
+                return None, "导出候选引用的定稿章节不存在"
+            raw_chapter_number = _coerce_chapter_number(candidate_asset.structured_data.get("chapter_number"))
+            if raw_chapter_number is None:
+                return None, "定稿章节缺少有效章节号"
+            raw_chapter_numbers.append(raw_chapter_number)
+        duplicate_chapters = sorted({number for number in raw_chapter_numbers if raw_chapter_numbers.count(number) > 1})
+        if duplicate_chapters:
+            return None, "导出候选包含重复定稿章节：" + "、".join(str(number) for number in duplicate_chapters)
+        chapter_numbers: list[int] = []
+        for ref in refs:
+            if not isinstance(ref, str):
+                return None, "导出候选包含无效定稿章节引用"
+            asset = state.store.get_asset_by_id(ref)
+            if asset is None or asset.project_id != project_id or asset.branch != branch or asset.asset_type != AssetType.final_chapter or asset.is_deleted:
+                return None, "导出候选引用的定稿章节不存在"
+            final_creator = next((task for task in tasks if asset.asset_id in task.output_refs), None)
+            if final_creator is None or final_creator.task_type != TaskType.final_save or final_creator.status != TaskStatus.completed:
+                return None, "定稿章节不是系统关键路径产物"
+            artifact_issues = find_production_artifact_issues(asset.content)
+            if artifact_issues:
+                return None, "定稿章节包含内部写作痕迹：" + "；".join(artifact_issues)
+            stale_reason = _final_chapter_stale_reason(asset)
+            if stale_reason:
+                return None, stale_reason
+            chapter_number = _coerce_chapter_number(asset.structured_data.get("chapter_number"))
+            if chapter_number is None:
+                return None, "定稿章节缺少有效章节号"
+            latest_final = _latest_final_chapter(project_id, branch, chapter_number)
+            if latest_final is None or latest_final.asset_id != asset.asset_id:
+                return None, f"第 {chapter_number} 章已有更新的定稿章节，需重新生成导出候选"
+            chapter_numbers.append(chapter_number)
+        target_chapter = _coerce_chapter_number(candidate.structured_data.get("chapter_number")) or max(chapter_numbers)
+        expected = list(range(1, target_chapter + 1))
+        if sorted(chapter_numbers) != expected:
+            missing = [number for number in expected if number not in chapter_numbers]
+            return None, "缺少连续定稿章节：" + "、".join(str(number) for number in missing)
+        return candidate, ""
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         state.runtime.start()
@@ -1617,6 +1864,7 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
             state.store.close()
 
     app = FastAPI(title="StoryForge API", version="0.1.0", lifespan=lifespan)
+    app.extra["storyforge_store"] = state.store
 
     # Rate limiter: 300 requests per minute per client
     rate_limiter = RateLimiter(max_requests=300, window_seconds=60)
@@ -1995,6 +2243,49 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
             available_actions=["queue_first_loop", "process_next", "drain"],
         )
 
+    @app.get("/api/projects/{project_id}/critical-path")
+    def get_critical_path(project_id: str, branch: str = "main", chapter_number: int = 1, authorization: str | None = Header(default=None)) -> dict:
+        project = _project_or_404(project_id)
+        _require_token_read_access(project, authorization)
+        branch = _require_project_branch(project, branch)
+        tasks = state.store.list_tasks(project_id, branch=branch)
+        stages: list[dict] = []
+        for stage_name, task_type, expected_types in CRITICAL_PATH_STAGES:
+            task = _critical_path_task(tasks, task_type, chapter_number)
+            input_assets = _task_assets(task, task.input_asset_refs) if task is not None else []
+            output_assets = _task_assets(task, task.output_refs) if task is not None else []
+            stages.append(
+                {
+                    "stage": stage_name,
+                    "task_type": task_type.value,
+                    "status": task.status.value if task is not None else "missing",
+                    "task": _task_summary(task) if task is not None else None,
+                    "input_assets": [_asset_summary(asset) for asset in input_assets],
+                    "output_assets": [_asset_summary(asset) for asset in output_assets],
+                    "gate": _critical_stage_gate(output_assets),
+                    "blocked_reason": _critical_stage_blocker(task, output_assets, expected_types),
+                }
+            )
+        bootstrap_assets = {
+            asset_type.value: (_asset_summary(asset) if (asset := _latest_visible_asset(project_id, asset_type, branch)) is not None else None)
+            for asset_type in BOOTSTRAP_ASSET_TYPES
+        }
+        export_candidate, export_blocked_reason = _ready_export_candidate(project_id, branch)
+        next_stage = next((stage for stage in stages if stage["status"] != TaskStatus.completed.value), None)
+        first_blocked = next((stage for stage in stages if stage["blocked_reason"]), None)
+        return {
+            "project_id": project_id,
+            "branch": branch,
+            "chapter_number": chapter_number,
+            "critical_path": stages,
+            "bootstrap_assets": bootstrap_assets,
+            "bootstrap_complete": all(asset is not None for asset in bootstrap_assets.values()),
+            "export_ready": export_candidate is not None,
+            "export_candidate": _asset_summary(export_candidate) if export_candidate is not None else None,
+            "export_blocked_reason": export_blocked_reason,
+            "next_step": first_blocked["blocked_reason"] if first_blocked is not None else (next_stage["stage"] if next_stage is not None else "ready"),
+        }
+
     @app.patch("/api/projects/{project_id}/auto-mode", response_model=Project)
     def toggle_auto_mode(project_id: str, body: AutoModeToggle, authorization: str | None = Header(default=None)) -> Project:
         project = state.store.get_project(project_id)
@@ -2253,6 +2544,30 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
             raise HTTPException(status_code=404, detail="Asset not found")
         return assets[-1]
 
+    @app.get("/api/projects/{project_id}/assets/{asset_id}/lineage")
+    def get_asset_lineage(project_id: str, asset_id: str, branch: str = "main", authorization: str | None = Header(default=None)) -> dict:
+        project = _project_or_404(project_id)
+        _require_token_read_access(project, authorization)
+        branch = _require_project_branch(project, branch)
+        asset = state.store.get_asset_by_id(asset_id)
+        if asset is None or asset.project_id != project_id or asset.branch != branch or asset.is_deleted:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        tasks = state.store.list_tasks(project_id, branch=branch)
+        created_by = next((task for task in tasks if asset.asset_id in task.output_refs), None)
+        upstream_assets = _task_assets(created_by, created_by.input_asset_refs) if created_by is not None else []
+        downstream_tasks = [task for task in tasks if asset.asset_id in task.input_asset_refs]
+        lineage_members = _asset_lineage_members(project_id, asset)
+        return {
+            "project_id": project_id,
+            "branch": branch,
+            "asset": _asset_summary(asset),
+            "created_by_task": _task_summary(created_by) if created_by is not None else None,
+            "frozen_inputs": [_asset_summary(input_asset) for input_asset in upstream_assets],
+            "upstream_asset_ids": [input_asset.asset_id for input_asset in upstream_assets],
+            "downstream_tasks": [_task_summary(task) for task in downstream_tasks],
+            "lineage_asset_ids": [member.asset_id for member in lineage_members],
+        }
+
     @app.get("/api/projects/{project_id}/pacing-curve", response_model=PacingCurveResponse)
     def get_pacing_curve(project_id: str, branch: str = "main", authorization: str | None = Header(default=None)) -> PacingCurveResponse:
         project = _project_or_404(project_id)
@@ -2336,6 +2651,8 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
         if project is None:
             raise HTTPException(status_code=404, detail="Project not found")
         _require_token_write_access(project, authorization)
+        if body.asset_type in SYSTEM_GATE_ASSET_TYPES:
+            raise HTTPException(status_code=403, detail="System gate assets must be produced by workflow tasks")
         asset = Asset(
             project_id=project_id,
             asset_type=body.asset_type,
@@ -2360,6 +2677,8 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
             raise HTTPException(status_code=404, detail="Asset not found")
         if _is_foreshadowing_asset(existing_asset):
             raise HTTPException(status_code=404, detail="Asset not found")
+        if existing_asset.asset_type in SYSTEM_GATE_ASSET_TYPES:
+            raise HTTPException(status_code=403, detail="System gate assets are read-only")
         actor_id = _require_token_write_access(project, authorization)
         lineage_origin_id = str(existing_asset.structured_data.get("origin_asset_id") or existing_asset.asset_id)
         structured_data = dict(existing_asset.structured_data)
@@ -2412,20 +2731,32 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
             raise HTTPException(status_code=404, detail="Asset not found")
         if _is_foreshadowing_asset(existing_asset):
             raise HTTPException(status_code=404, detail="Asset not found")
+        if existing_asset.asset_type in SYSTEM_GATE_ASSET_TYPES:
+            raise HTTPException(status_code=403, detail="System gate assets are read-only")
         actor_id = _require_token_write_access(project, authorization)
 
         target_version = body.target_version
         if target_version is None:
             raise HTTPException(status_code=400, detail="target_version is required")
 
+        lineage_origin_id = str(existing_asset.structured_data.get("origin_asset_id") or existing_asset.asset_id)
         versions = state.store.list_asset_versions(project_id, existing_asset.asset_type, branch=existing_asset.branch)
-        target = next((v for v in versions if v.version == target_version and v.branch == existing_asset.branch and not v.is_deleted), None)
+        target = next(
+            (
+                v
+                for v in versions
+                if v.version == target_version
+                and v.branch == existing_asset.branch
+                and not v.is_deleted
+                and (v.asset_id == lineage_origin_id or v.structured_data.get("origin_asset_id") == lineage_origin_id)
+            ),
+            None,
+        )
         if target is None:
             raise HTTPException(status_code=404, detail=f"Version {target_version} not found")
         if _is_foreshadowing_asset(target):
             raise HTTPException(status_code=404, detail="Asset not found")
 
-        lineage_origin_id = str(existing_asset.structured_data.get("origin_asset_id") or existing_asset.asset_id)
         structured_data = dict(target.structured_data)
         structured_data["origin_asset_id"] = lineage_origin_id
         structured_data["rollback_from_version"] = target_version
@@ -2765,18 +3096,20 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
         project = _project_or_404(project_id)
         _require_token_read_access(project, authorization)
         branch = _require_project_branch(project, body.branch)
-        chapter_assets = state.store.list_assets(project_id, AssetType.chapter, branch=branch)
-        latest_by_chapter: dict[int, Asset] = {}
-        for asset in chapter_assets:
-            if asset.is_deleted or _is_spot_fix_candidate(asset):
+        export_candidate, blocked_reason = _ready_export_candidate(project_id, branch)
+        if export_candidate is None:
+            raise HTTPException(status_code=409, detail=blocked_reason)
+        final_refs = export_candidate.structured_data.get("final_chapter_refs", [])
+        ordered_chapters: list[Asset] = []
+        for ref in final_refs:
+            if not isinstance(ref, str):
                 continue
-            chapter_number = _coerce_chapter_number(asset.structured_data.get("chapter_number"))
-            if chapter_number is None:
-                continue
-            existing = latest_by_chapter.get(chapter_number)
-            if existing is None or asset.version > existing.version:
-                latest_by_chapter[chapter_number] = asset
-        ordered_chapters = [latest_by_chapter[number] for number in sorted(latest_by_chapter)]
+            asset = state.store.get_asset_by_id(ref)
+            if asset is not None and asset.project_id == project_id and asset.branch == branch and asset.asset_type == AssetType.final_chapter and not asset.is_deleted:
+                ordered_chapters.append(asset)
+        if not ordered_chapters:
+            raise HTTPException(status_code=409, detail="导出候选引用的定稿章节不存在")
+        ordered_chapters.sort(key=lambda item: _coerce_chapter_number(item.structured_data.get("chapter_number")) or 0)
         media_type, extension, renderer = EXPORTERS[body.format]
         content = renderer(project, ordered_chapters)
         filename_base = _sanitize_download_filename(project.title or project.project_id)
@@ -3461,38 +3794,45 @@ def create_app(*, store: StoryForgeStore | None = None, db_path: str | None = No
         _require_token_read_access(project, authorization)
         branch = _require_project_branch(project, branch)
 
-        # Gather chapter assets
-        chapter_assets = state.store.list_assets(project_id, AssetType.chapter, branch=branch)
+        final_assets = state.store.list_assets(project_id, AssetType.final_chapter, branch=branch)
         chapter_by_number: dict[int, ChapterInfo] = {}
-        for asset in chapter_assets:
-            if asset.is_deleted or _is_spot_fix_candidate(asset):
+        for asset in final_assets:
+            if asset.is_deleted:
                 continue
-            ch_num = asset.structured_data.get("chapter_number", 0)
+            ch_num = _coerce_chapter_number(asset.structured_data.get("chapter_number"))
+            if ch_num is None:
+                continue
             chapter_by_number[ch_num] = ChapterInfo(
                 chapter_number=ch_num,
                 title=asset.structured_data.get("title", ""),
+                status="final",
+                asset_id=asset.asset_id,
+                review_approved=True,
+            )
+
+        draft_assets = state.store.list_assets(project_id, AssetType.chapter, branch=branch)
+        for asset in draft_assets:
+            if asset.is_deleted or _is_spot_fix_candidate(asset):
+                continue
+            ch_num = _coerce_chapter_number(asset.structured_data.get("chapter_number"))
+            if ch_num is None or ch_num in chapter_by_number:
+                continue
+            chapter_by_number[ch_num] = ChapterInfo(
+                chapter_number=ch_num,
+                title=asset.structured_data.get("title", ""),
+                status="draft",
                 asset_id=asset.asset_id,
             )
 
-        # Check review status per chapter
-        review_assets = state.store.list_assets(project_id, AssetType.review_note, branch=branch)
-        for review in review_assets:
-            if review.is_deleted:
-                continue
-            ch_num = review.structured_data.get("chapter_number")
-            if ch_num in chapter_by_number:
-                chapter_by_number[ch_num].review_approved = review.structured_data.get("approved")
-
-        # Mark status based on tasks
         tasks = state.store.list_tasks(project_id, branch=branch)
-        completed_chapters = {
+        final_chapters = {
             int(t.payload.get("chapter_number", 0))
             for t in tasks
-            if t.task_type == TaskType.chapter_generation and t.status == TaskStatus.completed
+            if t.task_type == TaskType.final_save and t.status == TaskStatus.completed
         }
         for ch_num, info in chapter_by_number.items():
-            if ch_num in completed_chapters:
-                info.status = "completed"
+            if ch_num in final_chapters:
+                info.status = "final"
 
         # Include pending chapters from queued tasks
         for t in tasks:

@@ -66,7 +66,7 @@ def test_background_runtime_processes_enqueued_project(tmp_path: Path) -> None:
 
         assets_response = client.get(f"/api/projects/{project_id}/assets")
         assert assets_response.status_code == 200
-        assert len(assets_response.json()) == 4
+        assert len(assets_response.json()) == 16
 
 
 
@@ -219,7 +219,7 @@ def test_background_runtime_deduplicates_same_project_enqueue(tmp_path: Path) ->
 
         events_by_task = [client.get(f"/api/tasks/{task['task_id']}/events").json() for task in tasks]
         started_counts = [sum(1 for event in events if event["event_type"] == "started") for events in events_by_task]
-        assert started_counts == [1, 1, 1, 1]
+        assert started_counts == [1] * len(tasks)
 
 
 
@@ -269,8 +269,8 @@ def test_process_now_serializes_with_background_drain(tmp_path: Path) -> None:
         events_by_task = [client.get(f"/api/tasks/{task['task_id']}/events").json() for task in tasks]
         started_counts = [sum(1 for event in events if event["event_type"] == "started") for events in events_by_task]
         completed_counts = [sum(1 for event in events if event["event_type"] == "completed") for events in events_by_task]
-        assert started_counts == [1, 1, 1, 1]
-        assert completed_counts == [1, 1, 1, 1]
+        assert started_counts == [1] * len(tasks)
+        assert completed_counts == [1] * len(tasks)
 
 
 
@@ -343,7 +343,7 @@ def test_runtime_reclaims_project_after_expired_claim(tmp_path: Path) -> None:
 
         response = client.post(f"/api/projects/{project_id}/runtime/process-now")
         assert response.status_code == 200
-        assert response.json()["processed_count"] == 4
+        assert response.json()["processed_count"] == 10
 
         tasks = client.get(f"/api/projects/{project_id}/tasks").json()
         assert all(task["status"] == "completed" for task in tasks)

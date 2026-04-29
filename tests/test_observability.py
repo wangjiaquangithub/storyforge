@@ -21,8 +21,8 @@ def test_project_summary_reports_completed_pipeline() -> None:
         assert summary_response.status_code == 200
         summary = summary_response.json()
 
-        assert summary["task_summary"]["total"] == 4
-        assert summary["task_summary"]["completed"] == 4
+        assert summary["task_summary"]["total"] == 10
+        assert summary["task_summary"]["completed"] == 10
         assert summary["task_summary"]["failed"] == 0
         assert summary["failure_summary"]["failed_task_ids"] == []
         assert summary["latest_event_type"] == "completed"

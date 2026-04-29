@@ -11,6 +11,12 @@ from storyforge.execution.store import StoryForgeStore
 STYLE_PROFILE_FIELDS = {"voice", "strengths", "avoid", "sensory_keywords"}
 
 
+def _count_words_or_cjk_chars(text: str) -> int:
+    words = re.findall(r"[A-Za-z0-9_]+", text)
+    cjk_chars = re.findall(r"[一-鿿]", text)
+    return len(words) + len(cjk_chars)
+
+
 def _latest_style_override(store: StoryForgeStore, project_id: str, *, branch: str | None = None) -> Asset | None:
     overrides = [
         asset
@@ -68,27 +74,42 @@ def build_style_profile(store: StoryForgeStore, project_id: str, *, branch: str 
     preferred_source = "human" if human_samples else effective_samples[-1].source
     lower_text = " ".join(texts).lower()
     sensory_matches = re.findall(
-        r"\b(?:rust|smoke|blood|cold|heat|breath|shadow|light|scent|metal|rain)\b",
+        r"\b(?:rust|smoke|blood|cold|heat|breath|shadow|light|scent|metal|rain)\b|锈迹|烟气|血腥|寒意|热浪|呼吸|阴影|光线|气味|金属|雨声|脚步|灯光|尘土|心跳|灼痛|汗",
         lower_text,
     )
-    sensory_keywords = [word for word, _ in Counter(sensory_matches).most_common(6)]
+    sensory_keyword_map = {
+        "rust": "锈迹",
+        "smoke": "烟气",
+        "blood": "血腥",
+        "cold": "寒意",
+        "heat": "热浪",
+        "breath": "呼吸",
+        "shadow": "阴影",
+        "light": "光线",
+        "scent": "气味",
+        "metal": "金属",
+        "rain": "雨声",
+    }
+    sensory_keywords = [sensory_keyword_map.get(word, word) for word, _ in Counter(sensory_matches).most_common(6)]
 
     strengths: list[str] = []
     if any('"' in text or "“" in text or "”" in text for text in texts):
-        strengths.append("dialogue presence")
+        strengths.append("对话存在感强")
     if sensory_keywords:
-        strengths.append("sensory detail")
-    if any(len(text.split()) > 80 for text in texts):
-        strengths.append("expanded introspection")
+        strengths.append("感官细节突出")
+    if any(_count_words_or_cjk_chars(text) > 80 for text in texts):
+        strengths.append("内心描写充分")
+    if any(any(marker in text[-120:] for marker in ["下一刻", "身后", "门外", "还没结束", "真正的", "新的", "屏幕上"]) for text in texts):
+        strengths.append("章末钩子明确")
 
     avoid: list[str] = []
     if all('"' not in text and "“" not in text and "”" not in text for text in texts):
-        avoid.append("flat exposition")
+        avoid.append("平铺直叙")
 
     voice = (
-        "closer third person"
-        if any(word in lower_text for word in ["he ", "she ", "his ", "her "])
-        else "immersive narrative"
+        "贴近角色的第三人称"
+        if any(word in lower_text for word in ["he ", "she ", "his ", "her ", "他", "她"])
+        else "沉浸式叙事"
     )
     return _merge_locked_override(
         {

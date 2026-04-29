@@ -73,6 +73,7 @@
       button.danger-text { background: transparent; color: var(--danger); padding: 8px 4px; }
       button.danger-text:hover { background: transparent; color: #fca5a5; }
       button:active { transform: scale(0.95); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
       /* Form controls */
       input, select, textarea {
@@ -265,6 +266,9 @@
       .production-actions { display: flex; gap: 8px; flex-wrap: wrap; }
       .production-task-list { display: flex; flex-direction: column; gap: 6px; }
       .production-task-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--elevated); }
+      .critical-path-list { display: grid; gap: 6px; }
+      .critical-path-row { display: grid; grid-template-columns: 150px 96px minmax(0, 1fr); gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--elevated); }
+      .bootstrap-grid { display: flex; gap: 6px; flex-wrap: wrap; }
       .summary-value { font-size: 22px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
       .summary-label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
 
@@ -450,6 +454,7 @@
                     </div>
                   </label>
                   <div style="flex:1;"></div>
+                  <span class="badge warn" id="export-gate-badge">导出未就绪</span>
                   <button id="export-md-btn" class="small" aria-label="导出 Markdown">MD</button>
                   <button id="export-text-btn" class="small" aria-label="导出 Text">TXT</button>
                   <button id="export-qidian-btn" class="small" aria-label="导出起点">起点</button>
@@ -487,6 +492,11 @@
                     <div class="summary-tile"><div class="summary-value" id="production-running">0</div><div class="summary-label">运行中</div></div>
                     <div class="summary-tile"><div class="summary-value" id="production-completed">0</div><div class="summary-label">已完成</div></div>
                     <div class="summary-tile"><div class="summary-value" id="production-failed">0</div><div class="summary-label">失败</div></div>
+                  </div>
+                  <div>
+                    <div class="section-title">产品 Critical Path</div>
+                    <div class="bootstrap-grid" id="bootstrap-asset-status"></div>
+                    <div class="critical-path-list" id="critical-path-list"><div class="empty">还没有关键路径任务。</div></div>
                   </div>
                   <div>
                     <div class="section-title">当前分支队列</div>
@@ -707,12 +717,12 @@
       </main>
     </div>
     <script>
-      const state = { projects: [], selectedProjectId: null, selectedProject: null, selectedBranch: "main", summary: null, productionConsole: null, latestReview: null, qualityExperiments: null, rules: [], foreshadowing: [], timeline: [], pacingCurve: null, styleProfile: null, assets: [], tasks: [], chapters: [], selectedAssetId: null, selectedSpotFixCandidateId: null, spotFixSelectedParagraphs: [], eventSource: null, refreshTimer: null, _flashTimer: null, assetVersions: [], trash: [], creatingAsset: false };
+      const state = { projects: [], selectedProjectId: null, selectedProject: null, selectedBranch: "main", summary: null, productionConsole: null, criticalPath: null, latestReview: null, qualityExperiments: null, rules: [], foreshadowing: [], timeline: [], pacingCurve: null, styleProfile: null, assets: [], tasks: [], chapters: [], selectedAssetId: null, selectedSpotFixCandidateId: null, spotFixSelectedParagraphs: [], eventSource: null, refreshTimer: null, refreshDebounceTimer: null, refreshInFlight: null, refreshInFlightKey: "", refreshQueued: false, _flashTimer: null, assetVersions: [], trash: [], creatingAsset: false };
       const els = {
-        branchStatusBadge: document.getElementById("branch-status-badge"), branchCompareCard: document.getElementById("branch-compare-card"), branchCompareTitle: document.getElementById("branch-compare-title"), branchChapterDiff: document.getElementById("branch-chapter-diff"), branchAuditDiff: document.getElementById("branch-audit-diff"), connectionBadge: document.getElementById("connection-badge"), flashMessage: document.getElementById("flash-message"), projectList: document.getElementById("project-list"), projectCountBadge: document.getElementById("project-count-badge"), assetListCard: document.getElementById("asset-list-card"), assetList: document.getElementById("asset-list"), assetCountBadge: document.getElementById("asset-count-badge"), trashCard: document.getElementById("trash-card"), trashList: document.getElementById("trash-list"), trashCountBadge: document.getElementById("trash-count-badge"), diffCard: document.getElementById("diff-card"), diffContent: document.getElementById("diff-content"), projectOverview: document.getElementById("project-overview"), projectOverviewCard: document.getElementById("project-overview-card"), projectTitle: document.getElementById("project-title"), projectPhase: document.getElementById("project-phase"), projectCursor: document.getElementById("project-cursor"), projectUpdated: document.getElementById("project-updated"), latestEvent: document.getElementById("latest-event"), summaryTotal: document.getElementById("summary-total"), summaryCompleted: document.getElementById("summary-completed"), summaryRunning: document.getElementById("summary-running"), summaryFailed: document.getElementById("summary-failed"), summaryTokens: document.getElementById("summary-tokens"), chaptersCard: document.getElementById("chapters-card"), chapterList: document.getElementById("chapter-list"), outlineCard: document.getElementById("outline-card"), outlineList: document.getElementById("outline-list"), tasksCard: document.getElementById("tasks-card"), taskList: document.getElementById("task-list"), taskQueueBadge: document.getElementById("task-queue-badge"), assetEditorCard: document.getElementById("asset-editor-card"), editorTitle: document.getElementById("editor-title"), editorType: document.getElementById("editor-type"), editorVersion: document.getElementById("editor-version"), editorSource: document.getElementById("editor-source"), assetIdDisplay: document.getElementById("asset-id-display"), assetContentEditor: document.getElementById("asset-content-editor"), assetSourceEditor: document.getElementById("asset-source-editor"), assetStructuredEditor: document.getElementById("asset-structured-editor"), rollbackVersionSelect: document.getElementById("rollback-version-select"), styleCard: document.getElementById("style-card"), styleProfileContent: document.getElementById("style-profile-content"), styleProfileForm: document.getElementById("style-profile-form"), styleVoiceInput: document.getElementById("style-voice-input"), styleStrengthsInput: document.getElementById("style-strengths-input"), styleAvoidInput: document.getElementById("style-avoid-input"), styleSensoryKeywordsInput: document.getElementById("style-sensory-keywords-input"), styleLockedFieldsInput: document.getElementById("style-locked-fields-input"), commentsCard: document.getElementById("comments-card"), commentsList: document.getElementById("comments-list"), commentForm: document.getElementById("comment-form"), commentAuthorInput: document.getElementById("comment-author-input"), currentRoleInput: document.getElementById("current-role-input"), approvalStatusInput: document.getElementById("approval-status-input"), commentStatusFilter: document.getElementById("comment-status-filter"), commentAnchorTypeInput: document.getElementById("comment-anchor-type-input"), commentParagraphIndexInput: document.getElementById("comment-paragraph-index-input"), commentStartOffsetInput: document.getElementById("comment-start-offset-input"), commentEndOffsetInput: document.getElementById("comment-end-offset-input"), commentContentInput: document.getElementById("comment-content-input"), branchSelect: document.getElementById("branch-select"), newBranchBtn: document.getElementById("new-branch-btn"), auditCard: document.getElementById("audit-card"), auditStatusBadge: document.getElementById("audit-status-badge"), auditPanelContent: document.getElementById("audit-panel-content"), qualityExperimentsCard: document.getElementById("quality-experiments-card"), qualityExperimentsCountBadge: document.getElementById("quality-experiments-count-badge"), qualityExperimentsList: document.getElementById("quality-experiments-list"), ruleCard: document.getElementById("rule-card"), ruleCountBadge: document.getElementById("rule-count-badge"), ruleList: document.getElementById("rule-list"), ruleForm: document.getElementById("rule-form"), ruleNameInput: document.getElementById("rule-name-input"), ruleDescriptionInput: document.getElementById("rule-description-input"), foreshadowingCard: document.getElementById("foreshadowing-card"), foreshadowingCountBadge: document.getElementById("foreshadowing-count-badge"), foreshadowingList: document.getElementById("foreshadowing-list"), foreshadowingForm: document.getElementById("foreshadowing-form"), foreshadowingTitleInput: document.getElementById("foreshadowing-title-input"), foreshadowingDescriptionInput: document.getElementById("foreshadowing-description-input"), foreshadowingIntroducedInput: document.getElementById("foreshadowing-introduced-input"), foreshadowingResolutionInput: document.getElementById("foreshadowing-resolution-input"), timelineCard: document.getElementById("timeline-card"), timelineCountBadge: document.getElementById("timeline-count-badge"), timelineList: document.getElementById("timeline-list"), timelineForm: document.getElementById("timeline-form"), timelineTitleInput: document.getElementById("timeline-title-input"), timelineDescriptionInput: document.getElementById("timeline-description-input"), timelineChapterInput: document.getElementById("timeline-chapter-input"), timelineOrderInput: document.getElementById("timeline-order-input"), timelineTimeInput: document.getElementById("timeline-time-input"), timelineLocationInput: document.getElementById("timeline-location-input"), timelineCharactersInput: document.getElementById("timeline-characters-input"), pacingCard: document.getElementById("pacing-card"), pacingCountBadge: document.getElementById("pacing-count-badge"), pacingCurveSvg: document.getElementById("pacing-curve-svg"), pacingCurveList: document.getElementById("pacing-curve-list")
+        branchStatusBadge: document.getElementById("branch-status-badge"), branchCompareCard: document.getElementById("branch-compare-card"), branchCompareTitle: document.getElementById("branch-compare-title"), branchChapterDiff: document.getElementById("branch-chapter-diff"), branchAuditDiff: document.getElementById("branch-audit-diff"), connectionBadge: document.getElementById("connection-badge"), flashMessage: document.getElementById("flash-message"), projectList: document.getElementById("project-list"), projectCountBadge: document.getElementById("project-count-badge"), assetListCard: document.getElementById("asset-list-card"), assetList: document.getElementById("asset-list"), assetCountBadge: document.getElementById("asset-count-badge"), trashCard: document.getElementById("trash-card"), trashList: document.getElementById("trash-list"), trashCountBadge: document.getElementById("trash-count-badge"), diffCard: document.getElementById("diff-card"), diffContent: document.getElementById("diff-content"), projectOverview: document.getElementById("project-overview"), projectOverviewCard: document.getElementById("project-overview-card"), projectTitle: document.getElementById("project-title"), projectPhase: document.getElementById("project-phase"), projectCursor: document.getElementById("project-cursor"), projectUpdated: document.getElementById("project-updated"), latestEvent: document.getElementById("latest-event"), summaryTotal: document.getElementById("summary-total"), summaryCompleted: document.getElementById("summary-completed"), summaryRunning: document.getElementById("summary-running"), summaryFailed: document.getElementById("summary-failed"), summaryTokens: document.getElementById("summary-tokens"), chaptersCard: document.getElementById("chapters-card"), chapterList: document.getElementById("chapter-list"), outlineCard: document.getElementById("outline-card"), outlineList: document.getElementById("outline-list"), tasksCard: document.getElementById("tasks-card"), taskList: document.getElementById("task-list"), taskQueueBadge: document.getElementById("task-queue-badge"), assetEditorCard: document.getElementById("asset-editor-card"), editorTitle: document.getElementById("editor-title"), editorType: document.getElementById("editor-type"), editorVersion: document.getElementById("editor-version"), editorSource: document.getElementById("editor-source"), assetIdDisplay: document.getElementById("asset-id-display"), assetContentEditor: document.getElementById("asset-content-editor"), assetSourceEditor: document.getElementById("asset-source-editor"), assetStructuredEditor: document.getElementById("asset-structured-editor"), rollbackVersionSelect: document.getElementById("rollback-version-select"), styleCard: document.getElementById("style-card"), styleProfileContent: document.getElementById("style-profile-content"), styleProfileForm: document.getElementById("style-profile-form"), styleVoiceInput: document.getElementById("style-voice-input"), styleStrengthsInput: document.getElementById("style-strengths-input"), styleAvoidInput: document.getElementById("style-avoid-input"), styleSensoryKeywordsInput: document.getElementById("style-sensory-keywords-input"), styleLockedFieldsInput: document.getElementById("style-locked-fields-input"), commentsCard: document.getElementById("comments-card"), commentsList: document.getElementById("comments-list"), commentForm: document.getElementById("comment-form"), commentAuthorInput: document.getElementById("comment-author-input"), currentRoleInput: document.getElementById("current-role-input"), approvalStatusInput: document.getElementById("approval-status-input"), commentStatusFilter: document.getElementById("comment-status-filter"), commentAnchorTypeInput: document.getElementById("comment-anchor-type-input"), commentParagraphIndexInput: document.getElementById("comment-paragraph-index-input"), commentStartOffsetInput: document.getElementById("comment-start-offset-input"), commentEndOffsetInput: document.getElementById("comment-end-offset-input"), commentContentInput: document.getElementById("comment-content-input"), branchSelect: document.getElementById("branch-select"), newBranchBtn: document.getElementById("new-branch-btn"), auditCard: document.getElementById("audit-card"), auditStatusBadge: document.getElementById("audit-status-badge"), auditPanelContent: document.getElementById("audit-panel-content"), qualityExperimentsCard: document.getElementById("quality-experiments-card"), qualityExperimentsCountBadge: document.getElementById("quality-experiments-count-badge"), qualityExperimentsList: document.getElementById("quality-experiments-list"), ruleCard: document.getElementById("rule-card"), ruleCountBadge: document.getElementById("rule-count-badge"), ruleList: document.getElementById("rule-list"), ruleForm: document.getElementById("rule-form"), ruleNameInput: document.getElementById("rule-name-input"), ruleDescriptionInput: document.getElementById("rule-description-input"), foreshadowingCard: document.getElementById("foreshadowing-card"), foreshadowingCountBadge: document.getElementById("foreshadowing-count-badge"), foreshadowingList: document.getElementById("foreshadowing-list"), foreshadowingForm: document.getElementById("foreshadowing-form"), foreshadowingTitleInput: document.getElementById("foreshadowing-title-input"), foreshadowingDescriptionInput: document.getElementById("foreshadowing-description-input"), foreshadowingIntroducedInput: document.getElementById("foreshadowing-introduced-input"), foreshadowingResolutionInput: document.getElementById("foreshadowing-resolution-input"), timelineCard: document.getElementById("timeline-card"), timelineCountBadge: document.getElementById("timeline-count-badge"), timelineList: document.getElementById("timeline-list"), timelineForm: document.getElementById("timeline-form"), timelineTitleInput: document.getElementById("timeline-title-input"), timelineDescriptionInput: document.getElementById("timeline-description-input"), timelineChapterInput: document.getElementById("timeline-chapter-input"), timelineOrderInput: document.getElementById("timeline-order-input"), timelineTimeInput: document.getElementById("timeline-time-input"), timelineLocationInput: document.getElementById("timeline-location-input"), timelineCharactersInput: document.getElementById("timeline-characters-input"), pacingCard: document.getElementById("pacing-card"), pacingCountBadge: document.getElementById("pacing-count-badge"), pacingCurveSvg: document.getElementById("pacing-curve-svg"), pacingCurveList: document.getElementById("pacing-curve-list"), criticalPathList: document.getElementById("critical-path-list"), bootstrapAssetStatus: document.getElementById("bootstrap-asset-status"), exportGateBadge: document.getElementById("export-gate-badge")
       };
-      const ASSET_TYPE_LABELS = { brief: "项目概要", world: "世界观", characters: "角色卡", rules: "规则集", timeline: "时间线", outline: "大纲", chapter_summary: "章节摘要", chapter: "章节", review_note: "审查意见", continuity_note: "连续性记录" };
-      const TASK_TYPE_LABELS = { brief_generation: "Brief 生成", asset_bootstrap: "资产初始化", outline_generation: "大纲生成", chapter_generation: "章节生成", chapter_review: "章节审查", spot_fix: "定点修复", export: "导出" };
+      const ASSET_TYPE_LABELS = { brief: "项目概要", world: "世界观", characters: "角色卡", rules: "规则集", timeline: "时间线", style_profile: "风格画像", foreshadowing: "伏笔资产", outline: "大纲", chapter_summary: "章节摘要", chapter: "章节草稿", validation_report: "验证报告", audit_report: "审计报告", revision_delta: "修订差异", final_chapter: "定稿章节", export_candidate: "导出候选", review_note: "审查意见", continuity_note: "连续性记录" };
+      const TASK_TYPE_LABELS = { brief_generation: "Brief 生成", asset_bootstrap: "资产初始化", outline_generation: "大纲生成", chapter_generation: "章节草稿", chapter_validation: "章节验证", chapter_audit: "章节审计", chapter_revision: "章节修订", chapter_reaudit: "章节复审", final_save: "定稿保存", export_candidate: "导出候选", chapter_review: "章节审查", spot_fix: "定点修复", export: "导出" };
       const TASK_STATUS_LABELS = { accepted: "已接受", queued: "排队中", running: "运行中", waiting_retry: "等待重试", failed: "失败", cancelled: "已取消", completed: "已完成" };
       const PROJECT_PHASE_LABELS = { intake: "创意录入", briefing: "概要生成", outlining: "大纲生成", drafting: "章节撰写", review: "审查修改", publishing: "发布准备" };
 
@@ -795,6 +805,42 @@
         const totalTokens = usage.total_tokens ?? 0;
         els.summaryTokens.textContent = totalTokens > 0 ? (totalTokens > 1000 ? (totalTokens / 1000).toFixed(1) + "K" : totalTokens) : "0";
         renderProductionConsole();
+        renderCriticalPath();
+      }
+
+      function renderCriticalPath() {
+        const path = state.criticalPath;
+        const exportButtons = ["export-md-btn", "export-text-btn", "export-qidian-btn", "export-jinjiang-btn"].map((id) => document.getElementById(id)).filter(Boolean);
+        if (!path) {
+          els.bootstrapAssetStatus.innerHTML = "";
+          els.criticalPathList.innerHTML = '<div class="empty">还没有关键路径任务。</div>';
+          exportButtons.forEach((button) => button.disabled = true);
+          els.exportGateBadge.className = "badge warn";
+          els.exportGateBadge.textContent = "导出未就绪";
+          return;
+        }
+        const bootstrapAssets = path.bootstrap_assets || {};
+        const bootstrapNames = ["world", "characters", "rules", "timeline", "style_profile", "foreshadowing"];
+        els.bootstrapAssetStatus.innerHTML = bootstrapNames.map((name) => {
+          const ok = Boolean(bootstrapAssets[name]);
+          return `<span class="badge ${ok ? "ok" : "warn"}">${escapeHtml(t(ASSET_TYPE_LABELS, name, name))}${ok ? "已生成" : "缺失"}</span>`;
+        }).join("");
+        const stages = path.critical_path || [];
+        if (!stages.length) {
+          els.criticalPathList.innerHTML = '<div class="empty">还没有关键路径任务。</div>';
+        } else {
+          els.criticalPathList.innerHTML = stages.map((stage) => {
+            const status = stage.status || "missing";
+            const statusClass = status === "completed" ? "ok" : status === "failed" || status === "cancelled" ? "danger" : "warn";
+            const blocked = stage.blocked_reason || stage.gate?.blocked_reason || "";
+            const outputs = (stage.output_assets || []).map((asset) => t(ASSET_TYPE_LABELS, asset.asset_type, asset.asset_type)).join("、");
+            return `<div class="critical-path-row"><div class="list-title">${escapeHtml(stage.stage)}</div><span class="badge ${statusClass}">${escapeHtml(t(TASK_STATUS_LABELS, status, status))}</span><div class="list-meta"><span>${escapeHtml(outputs || "暂无产物")}</span>${blocked ? `<span class="badge danger">${escapeHtml(blocked)}</span>` : ""}</div></div>`;
+          }).join("");
+        }
+        const exportReady = Boolean(path.export_ready);
+        exportButtons.forEach((button) => button.disabled = !exportReady);
+        els.exportGateBadge.className = `badge ${exportReady ? "ok" : "warn"}`;
+        els.exportGateBadge.textContent = exportReady ? "导出候选已就绪" : `导出阻断：${path.export_blocked_reason || "未通过复审"}`;
       }
 
       function renderChapters() {
@@ -863,26 +909,30 @@
 
       function renderAuditPanel() {
         if (!state.selectedProjectId) return;
-        const review = state.latestReview;
+        const selectedAsset = state.assets.find((asset) => asset.asset_id === state.selectedAssetId);
+        const selectedChapter = selectedAsset?.structured_data?.chapter_number;
+        const reviewAssets = state.assets.filter((asset) => ["audit_report", "review_note"].includes(asset.asset_type) && (!selectedChapter || asset.structured_data?.chapter_number === selectedChapter));
+        const review = reviewAssets.sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0] || state.latestReview;
         if (!review) { els.auditStatusBadge.className = "badge"; els.auditStatusBadge.textContent = "暂无审计"; els.auditPanelContent.innerHTML = '<div class="empty">当前分支/章节还没有审计结果。</div>'; return; }
         const data = review.structured_data || {};
-        const approved = data.approved === true;
+        const approved = data.passed === true || data.approved === true;
         els.auditStatusBadge.className = `badge ${approved ? "ok" : "danger"}`;
         els.auditStatusBadge.textContent = approved ? "通过" : "需修复";
         const failedChecks = data.failed_checks || [];
-        const issues = data.issues || [];
-        const qualityDetails = data.quality_details || {};
+        const issues = data.blocking_issues || data.remaining_issues || data.issues || [];
+        const qualityDetails = data.checks || data.quality_details || {};
         const ruleAudits = data.rule_audits || [];
         const qualityHtml = Object.entries(qualityDetails).map(([name, result]) => {
           const passed = result?.passed === true;
-          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">质量检查：${escapeHtml(name)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(JSON.stringify(result?.details || {}))}</span></div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="quality:${escapeHtml(name)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
+          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">质量检查：${escapeHtml(name)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(JSON.stringify(result?.details || {}))}</span></div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="quality:${escapeHtml(name)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || data.revised_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
         }).join("");
         const ruleHtml = ruleAudits.map((audit) => {
           const passed = audit.passed === true;
-          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">规则：${escapeHtml(audit.name || audit.rule_id)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(audit.layer || "")}</span>${(audit.issues || []).map((issue) => `<span>${escapeHtml(issue)}</span>`).join("")}</div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="rule:${escapeHtml(audit.name || audit.rule_id)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
+          return `<div class="audit-row ${passed ? "passed" : "failed"}"><div class="list-title">规则：${escapeHtml(audit.name || audit.rule_id)} <span class="badge ${passed ? "ok" : "danger"}">${passed ? "通过" : "失败"}</span></div><div class="list-meta"><span>${escapeHtml(audit.layer || "")}</span>${(audit.issues || []).map((issue) => `<span>${escapeHtml(issue)}</span>`).join("")}</div>${passed ? "" : `<div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="rule:${escapeHtml(audit.name || audit.rule_id)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || data.revised_ref || "")}">创建 Spot-Fix</button></div>`}</div>`;
         }).join("");
-        const issuesHtml = issues.map((issue) => `<div class="audit-row failed"><div class="list-title">失败原因</div><div class="list-meta"><span>${escapeHtml(issue)}</span></div><div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="${escapeHtml(issue)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || "")}">创建 Spot-Fix</button></div></div>`).join("");
-        els.auditPanelContent.innerHTML = `<div class="audit-list"><div class="list-meta"><span>第 ${escapeHtml(data.chapter_number || "-")} 章</span><span>失败检查：${escapeHtml(failedChecks.join("、") || "无")}</span></div>${qualityHtml || '<div class="muted">无质量详情</div>'}${ruleHtml || '<div class="muted">无规则审计</div>'}${issuesHtml || ''}</div>`;
+        const issuesHtml = issues.map((issue) => `<div class="audit-row failed"><div class="list-title">失败原因</div><div class="list-meta"><span>${escapeHtml(issue)}</span></div><div class="audit-actions"><button class="small ghost spot-fix-btn" data-audit-issue="${escapeHtml(issue)}" data-chapter-asset-id="${escapeHtml(data.chapter_ref || data.revised_ref || "")}">创建 Spot-Fix</button></div></div>`).join("");
+        const instructionHtml = (data.revision_instructions || []).map((item) => `<div class="audit-row"><div class="list-title">修订指令</div><div class="list-meta"><span>${escapeHtml(item)}</span></div></div>`).join("");
+        els.auditPanelContent.innerHTML = `<div class="audit-list"><div class="list-meta"><span>第 ${escapeHtml(data.chapter_number || "-")} 章</span><span>失败检查：${escapeHtml(failedChecks.join("、") || "无")}</span></div>${qualityHtml || '<div class="muted">无质量详情</div>'}${ruleHtml || '<div class="muted">无规则审计</div>'}${issuesHtml || instructionHtml || ''}</div>`;
       }
 
       function renderQualityExperiments() {
@@ -946,10 +996,12 @@
 
       function splitCsv(value) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 
-      async function renderStyleProfile() {
-        if (!state.selectedProjectId) { els.styleCard.hidden = true; return; }
+      async function renderStyleProfile(projectId = state.selectedProjectId, branch = state.selectedBranch) {
+        if (!projectId) { els.styleCard.hidden = true; return; }
+        const refreshKey = `${projectId}:${branch}`;
         try {
-          const profile = await api(`/api/projects/${state.selectedProjectId}/style-profile?branch=${encodeURIComponent(state.selectedBranch)}`);
+          const profile = await api(`/api/projects/${projectId}/style-profile?branch=${encodeURIComponent(branch)}`);
+          if (refreshKey !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
           state.styleProfile = profile;
           els.styleCard.hidden = false;
           if (!profile || Object.keys(profile).length === 0) {
@@ -970,7 +1022,7 @@
           els.styleAvoidInput.value = (profile.avoid || []).join(",");
           els.styleSensoryKeywordsInput.value = (profile.sensory_keywords || []).join(",");
           els.styleLockedFieldsInput.value = (profile.locked_fields || []).join(",");
-        } catch { els.styleCard.hidden = true; }
+        } catch { if (refreshKey === `${state.selectedProjectId || ""}:${state.selectedBranch}`) els.styleCard.hidden = true; }
       }
 
       function renderEditor(asset) {
@@ -1066,40 +1118,48 @@
         setFlash("评论已解决。", "success");
       }
 
-      async function loadAssetVersions(assetType) {
-        if (!state.selectedProjectId || !assetType) { state.assetVersions = []; return; }
-        try { state.assetVersions = await api(`/api/projects/${state.selectedProjectId}/assets/${assetType}/versions?branch=${encodeURIComponent(state.selectedBranch)}`); } catch { state.assetVersions = []; }
+      async function loadAssetVersions(assetType, projectId = state.selectedProjectId, branch = state.selectedBranch) {
+        if (!projectId || !assetType) { state.assetVersions = []; return []; }
+        let versions = [];
+        try { versions = await api(`/api/projects/${projectId}/assets/${assetType}/versions?branch=${encodeURIComponent(branch)}`); } catch { versions = []; }
+        if (`${projectId}:${branch}` === `${state.selectedProjectId || ""}:${state.selectedBranch}`) state.assetVersions = versions;
+        return versions;
       }
 
-      async function loadTrash() {
-        if (!state.selectedProjectId) { state.trash = []; return; }
-        try { state.trash = await api(`/api/projects/${state.selectedProjectId}/assets/trash?branch=${encodeURIComponent(state.selectedBranch)}`); } catch { state.trash = []; }
-        renderTrash();
+      async function loadTrash(projectId = state.selectedProjectId, branch = state.selectedBranch, render = true) {
+        if (!projectId) { if (render) state.trash = []; return []; }
+        let trash = [];
+        try { trash = await api(`/api/projects/${projectId}/assets/trash?branch=${encodeURIComponent(branch)}`); } catch { trash = []; }
+        if (`${projectId}:${branch}` !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return trash;
+        if (render) { state.trash = trash; renderTrash(); }
+        return trash;
       }
 
-      async function loadBranches() {
-        if (!state.selectedProjectId) { return; }
+      async function loadBranches(projectId = state.selectedProjectId) {
+        if (!projectId) { return []; }
         try {
-          const branches = await api(`/api/projects/${state.selectedProjectId}/branches`);
+          const branches = await api(`/api/projects/${projectId}/branches`);
+          if (projectId !== state.selectedProjectId) return branches;
           if (!branches.includes(state.selectedBranch)) state.selectedBranch = branches[0] || "main";
           els.branchSelect.innerHTML = branches.map((b) => `<option value="${escapeHtml(b)}" ${b === state.selectedBranch ? "selected" : ""}>${escapeHtml(b)}</option>`).join("");
-        } catch { els.branchSelect.innerHTML = '<option value="main">main</option>'; }
+          return branches;
+        } catch {
+          if (projectId === state.selectedProjectId) els.branchSelect.innerHTML = '<option value="main">main</option>';
+          return [];
+        }
       }
 
       async function loadLatestReview() {
         state.latestReview = null;
-        if (!state.selectedProjectId) return;
-        const asset = state.assets.find((item) => item.asset_id === state.selectedAssetId);
-        const chapterNumber = asset?.asset_type === "chapter" ? asset.structured_data?.chapter_number : null;
-        const query = chapterNumber ? `&chapter_number=${encodeURIComponent(chapterNumber)}` : "";
-        try { state.latestReview = await api(`/api/projects/${state.selectedProjectId}/reviews/latest?branch=${encodeURIComponent(state.selectedBranch)}${query}`); } catch { state.latestReview = null; }
       }
 
-      async function loadRules() {
-        state.rules = [];
-        if (!state.selectedProjectId) return;
-        try { state.rules = await api(`/api/projects/${state.selectedProjectId}/rules`); } catch { state.rules = []; }
-        renderRules();
+      async function loadRules(projectId = state.selectedProjectId, render = true) {
+        if (!projectId) { if (render) state.rules = []; return []; }
+        let rules = [];
+        try { rules = await api(`/api/projects/${projectId}/rules`); } catch { rules = []; }
+        if (projectId !== state.selectedProjectId) return rules;
+        if (render) { state.rules = rules; renderRules(); }
+        return rules;
       }
 
       async function createBranch() {
@@ -1131,9 +1191,12 @@
 
       async function compareBranches() {
         if (!state.selectedProjectId) return;
-        const right = prompt("输入要比较的右侧分支：", state.selectedBranch === "main" ? "alt" : "main");
+        const projectId = state.selectedProjectId;
+        const left = state.selectedBranch;
+        const right = prompt("输入要比较的右侧分支：", left === "main" ? "alt" : "main");
         if (!right || !right.trim()) return;
-        const data = await api(`/api/projects/${state.selectedProjectId}/branches/compare?left=${encodeURIComponent(state.selectedBranch)}&right=${encodeURIComponent(right.trim())}`);
+        const data = await api(`/api/projects/${projectId}/branches/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right.trim())}`);
+        if (`${projectId}:${left}` !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
         els.branchCompareCard.hidden = false;
         els.branchCompareTitle.textContent = `${data.left} ↔ ${data.right}`;
         els.branchChapterDiff.className = "branch-chapter-diff";
@@ -1187,11 +1250,15 @@
       }
 
       async function selectAsset(assetId) {
+        const projectId = state.selectedProjectId;
+        const branch = state.selectedBranch;
         state.selectedAssetId = assetId;
         const asset = state.assets.find((item) => item.asset_id === assetId);
         renderAssets();
         renderChapters();
-        await loadAssetVersions(asset?.asset_type);
+        renderAuditPanel();
+        await loadAssetVersions(asset?.asset_type, projectId, branch);
+        if (`${projectId || ""}:${branch}` !== `${state.selectedProjectId || ""}:${state.selectedBranch}` || state.selectedAssetId !== assetId) return;
         renderEditor(asset || null);
       }
 
@@ -1200,32 +1267,78 @@
       }
 
       async function refreshSelectedProject() {
+        const refreshKey = `${state.selectedProjectId || ""}:${state.selectedBranch}`;
+        if (state.refreshInFlight) {
+          if (state.refreshInFlightKey === refreshKey) {
+            state.refreshQueued = true;
+            return state.refreshInFlight;
+          }
+          state.refreshQueued = false;
+        }
+        state.refreshInFlightKey = refreshKey;
+        state.refreshInFlight = doRefreshSelectedProject(refreshKey);
+        try {
+          return await state.refreshInFlight;
+        } finally {
+          if (state.refreshInFlightKey === refreshKey) {
+            state.refreshInFlight = null;
+            state.refreshInFlightKey = "";
+            if (state.refreshQueued) {
+              state.refreshQueued = false;
+              scheduleProjectRefresh(250);
+            }
+          }
+        }
+      }
+
+      async function doRefreshSelectedProject(refreshKey) {
         if (!state.selectedProjectId) {
-          state.selectedProject = null; state.summary = null; state.assets = []; state.tasks = []; state.chapters = []; state.latestReview = null; state.qualityExperiments = null; state.rules = []; state.foreshadowing = []; state.timeline = []; state.pacingCurve = null;
-          renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(null); await renderStyleProfile();
+          state.selectedProject = null; state.summary = null; state.assets = []; state.tasks = []; state.chapters = []; state.criticalPath = null; state.latestReview = null; state.qualityExperiments = null; state.rules = []; state.foreshadowing = []; state.timeline = []; state.pacingCurve = null;
+          renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderCriticalPath(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(null); await renderStyleProfile();
           return;
         }
         const projectId = state.selectedProjectId;
-        await loadBranches();
-        const branchQuery = `branch=${encodeURIComponent(state.selectedBranch)}`;
-        const [project, summary, assets, tasks, chapters, productionConsole, foreshadowing, timeline, pacingCurve, qualityExperiments] = await Promise.all([
+        await loadBranches(projectId);
+        if (projectId !== state.selectedProjectId) return;
+        const branch = state.selectedBranch;
+        const effectiveKey = `${projectId}:${branch}`;
+        if (refreshKey !== effectiveKey) {
+          scheduleProjectRefresh(0);
+          return;
+        }
+        const branchQuery = `branch=${encodeURIComponent(branch)}`;
+        const [project, summary, assets, tasks, chapters, productionConsole, criticalPath, foreshadowing, timeline, pacingCurve, qualityExperiments] = await Promise.all([
           api(`/api/projects/${projectId}`),
           api(`/api/projects/${projectId}/summary`),
           api(`/api/projects/${projectId}/assets?${branchQuery}`),
           api(`/api/projects/${projectId}/tasks?${branchQuery}`),
           api(`/api/projects/${projectId}/chapters?${branchQuery}`),
           api(`/api/projects/${projectId}/production-console?${branchQuery}`).catch(() => emptyProductionConsole(projectId)),
+          api(`/api/projects/${projectId}/critical-path?${branchQuery}`).catch(() => ({ critical_path: [], bootstrap_assets: {}, export_ready: false, export_blocked_reason: "关键路径状态暂时不可用" })),
           api(`/api/projects/${projectId}/foreshadowing?${branchQuery}`),
           api(`/api/projects/${projectId}/timeline?${branchQuery}`),
           api(`/api/projects/${projectId}/pacing-curve?${branchQuery}`),
           api(`/api/projects/${projectId}/quality-experiments?${branchQuery}`)
         ]);
-        state.selectedProject = project; state.summary = summary; state.assets = assets; state.tasks = tasks; state.chapters = chapters; state.productionConsole = productionConsole; state.foreshadowing = foreshadowing.items || []; state.timeline = timeline.items || []; state.pacingCurve = pacingCurve; state.qualityExperiments = qualityExperiments;
+        if (effectiveKey !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
+        const rules = await loadRules(projectId, false);
+        if (effectiveKey !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
+        const trash = await loadTrash(projectId, branch, false);
+        if (effectiveKey !== `${state.selectedProjectId || ""}:${state.selectedBranch}`) return;
+        state.selectedProject = project; state.summary = summary; state.assets = assets; state.tasks = tasks; state.chapters = chapters; state.productionConsole = productionConsole; state.criticalPath = criticalPath; state.foreshadowing = foreshadowing.items || []; state.timeline = timeline.items || []; state.pacingCurve = pacingCurve; state.qualityExperiments = qualityExperiments; state.rules = rules; state.trash = trash; state.latestReview = null;
         const selectedExists = state.selectedAssetId && state.assets.some((asset) => asset.asset_id === state.selectedAssetId);
         if (!selectedExists) state.selectedAssetId = state.assets[0]?.asset_id || null;
-        await loadLatestReview();
-        await loadRules();
-        renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null); await loadTrash(); await renderStyleProfile(); renderAutoModeToggle(project.auto_mode ?? true);
+        renderProjectOverview(); renderAssets(); renderChapters(); renderOutline(); renderTasks(); renderCriticalPath(); renderAuditPanel(); renderQualityExperiments(); renderRules(); renderForeshadowing(); renderTimeline(); renderPacingCurve(); renderEditor(state.assets.find((asset) => asset.asset_id === state.selectedAssetId) || null); renderTrash(); renderAutoModeToggle(project.auto_mode ?? true);
+        await renderStyleProfile(projectId, branch);
+      }
+
+      function scheduleProjectRefresh(delay = 500) {
+        if (state.refreshDebounceTimer) clearTimeout(state.refreshDebounceTimer);
+        state.refreshDebounceTimer = window.setTimeout(async () => {
+          state.refreshDebounceTimer = null;
+          if (!state.selectedProjectId) return;
+          try { await refreshSelectedProject(); setConnectionState(true); } catch (error) { setConnectionState(false, error.message); }
+        }, delay);
       }
 
       async function selectProject(projectId) { state.selectedProjectId = projectId; state.selectedAssetId = null; renderProjects(); await refreshSelectedProject(); startEventStream(); }
@@ -1246,7 +1359,7 @@
       }
 
       async function onEventReceived() {
-        try { await refreshSelectedProject(); setConnectionState(true); } catch (error) { setConnectionState(false, error.message); }
+        scheduleProjectRefresh(500);
       }
 
       function stopEventStream() {

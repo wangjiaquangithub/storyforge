@@ -33,6 +33,15 @@ _SYSTEM_DEFAULT_CONFIG = ConfigSnapshot(
     chapter_length_target=2000,
 )
 
+_BOOTSTRAP_ASSET_TYPES = (
+    AssetType.world,
+    AssetType.characters,
+    AssetType.rules,
+    AssetType.timeline,
+    AssetType.style_profile,
+    AssetType.foreshadowing,
+)
+
 
 @dataclass
 class DrainResult:
@@ -56,45 +65,34 @@ class ClosedLoopService:
         project = self.store.get_project(project_id)
         if project is None:
             raise ValueError("Project not found")
-        brief_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.brief_generation,
-                branch=branch,
-                payload={"chapter_number": chapter_number, "branch": branch},
+        task_specs = [
+            TaskType.brief_generation,
+            TaskType.asset_bootstrap,
+            TaskType.outline_generation,
+            TaskType.chapter_generation,
+            TaskType.chapter_validation,
+            TaskType.chapter_audit,
+            TaskType.chapter_revision,
+            TaskType.chapter_reaudit,
+            TaskType.final_save,
+            TaskType.export_candidate,
+        ]
+        tasks: list[TaskRecord] = []
+        parent_task_id: str | None = None
+        for task_type in task_specs:
+            task = self._accept_and_queue(
+                TaskRecord(
+                    project_id=project_id,
+                    task_type=task_type,
+                    branch=branch,
+                    payload={"chapter_number": chapter_number, "branch": branch, "critical_path": True},
+                    parent_task_id=parent_task_id,
+                    input_asset_refs=[],
+                )
             )
-        )
-        outline_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.outline_generation,
-                branch=branch,
-                payload={"chapter_number": chapter_number, "branch": branch},
-                parent_task_id=brief_task.task_id,
-                input_asset_refs=[],
-            )
-        )
-        chapter_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.chapter_generation,
-                branch=branch,
-                payload={"chapter_number": chapter_number, "branch": branch},
-                parent_task_id=outline_task.task_id,
-                input_asset_refs=[],
-            )
-        )
-        review_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.chapter_review,
-                branch=branch,
-                payload={"chapter_number": chapter_number, "branch": branch},
-                parent_task_id=chapter_task.task_id,
-                input_asset_refs=[],
-            )
-        )
-        return [brief_task, outline_task, chapter_task, review_task]
+            tasks.append(task)
+            parent_task_id = task.task_id
+        return tasks
 
     def record_event(self, event: EventRecord) -> EventRecord:
         recorded = self.store.append_event(event)
@@ -256,11 +254,12 @@ class ClosedLoopService:
         )
         try:
             self._validate_input_refs(task)
-            output_asset = self._generate_output(task)
-            output_asset.branch = task.branch
-            self.store.save_asset(output_asset)
-            self._update_project_state(task, output_asset)
-            task.output_refs.append(output_asset.asset_id)
+            output_assets = self._generate_outputs(task)
+            for output_asset in output_assets:
+                output_asset.branch = task.branch
+                self.store.save_asset(output_asset)
+                task.output_refs.append(output_asset.asset_id)
+            self._update_project_state(task, output_assets)
             self.state_machine.transition(task, TaskStatus.completed, step=f"{task.task_type.value}.completed", progress=1.0)
             self.store.save_task(task)
             self.record_event(
@@ -348,29 +347,74 @@ class ClosedLoopService:
         project_id = task.project_id
         if task.task_type == TaskType.brief_generation:
             pass
+        elif task.task_type == TaskType.asset_bootstrap:
+            self._append_latest_ref(task, AssetType.brief)
         elif task.task_type == TaskType.outline_generation:
-            brief = self.store.get_latest_asset(project_id, AssetType.brief, branch=task.branch)
-            if brief:
-                task.input_asset_refs.append(brief.asset_id)
+            self._append_latest_ref(task, AssetType.brief)
+            self._append_latest_refs(task, _BOOTSTRAP_ASSET_TYPES)
         elif task.task_type == TaskType.chapter_generation:
             if task.payload.get("rewrite"):
                 original_asset_id = task.payload.get("original_asset_id")
                 if original_asset_id:
                     task.input_asset_refs.append(str(original_asset_id))
-            outline = self.store.get_latest_asset(project_id, AssetType.outline, branch=task.branch)
-            brief = self.store.get_latest_asset(project_id, AssetType.brief, branch=task.branch)
-            if outline:
-                task.input_asset_refs.append(outline.asset_id)
-            if brief:
-                task.input_asset_refs.append(brief.asset_id)
+            self._append_latest_ref(task, AssetType.outline)
+            self._append_latest_ref(task, AssetType.brief)
+            self._append_latest_refs(task, _BOOTSTRAP_ASSET_TYPES)
+            self._append_latest_ref(task, AssetType.continuity_note, required=False)
+            self._append_latest_ref(task, AssetType.final_chapter, required=False)
+        elif task.task_type == TaskType.chapter_validation:
+            self._append_latest_ref(task, AssetType.chapter)
+            self._append_context_refs(task)
+        elif task.task_type == TaskType.chapter_audit:
+            self._append_latest_ref(task, AssetType.chapter)
+            self._append_latest_ref(task, AssetType.validation_report)
+            self._append_context_refs(task)
+        elif task.task_type == TaskType.chapter_revision:
+            self._append_latest_ref(task, AssetType.chapter)
+            self._append_latest_ref(task, AssetType.validation_report)
+            self._append_latest_ref(task, AssetType.audit_report)
+            self._append_context_refs(task)
+        elif task.task_type == TaskType.chapter_reaudit:
+            self._append_latest_ref(task, AssetType.chapter)
+            self._append_latest_ref(task, AssetType.revision_delta)
+            self._append_latest_ref(task, AssetType.validation_report)
+            self._append_latest_ref(task, AssetType.audit_report)
+            self._append_context_refs(task)
+        elif task.task_type == TaskType.final_save:
+            self._append_latest_ref(task, AssetType.chapter)
+            self._append_latest_ref(task, AssetType.revision_delta)
+            self._append_latest_ref(task, AssetType.audit_report)
+        elif task.task_type == TaskType.export_candidate:
+            self._append_all_refs(task, AssetType.final_chapter)
         elif task.task_type == TaskType.chapter_review:
-            chapter = self.store.get_latest_asset(project_id, AssetType.chapter, branch=task.branch)
-            if chapter:
-                task.input_asset_refs.append(chapter.asset_id)
+            self._append_latest_ref(task, AssetType.chapter)
         elif task.task_type == TaskType.spot_fix:
             chapter_asset_id = task.payload.get("chapter_asset_id")
             if chapter_asset_id:
                 task.input_asset_refs.append(chapter_asset_id)
+
+    def _append_latest_ref(self, task: TaskRecord, asset_type: AssetType, *, required: bool = True) -> None:
+        asset = self.store.get_latest_asset(task.project_id, asset_type, branch=task.branch)
+        if asset is not None and not asset.is_deleted and asset.asset_id not in task.input_asset_refs:
+            task.input_asset_refs.append(asset.asset_id)
+        elif required:
+            return
+
+    def _append_latest_refs(self, task: TaskRecord, asset_types: tuple[AssetType, ...]) -> None:
+        for asset_type in asset_types:
+            self._append_latest_ref(task, asset_type)
+
+    def _append_all_refs(self, task: TaskRecord, asset_type: AssetType) -> None:
+        for asset in self.store.list_assets(task.project_id, asset_type, branch=task.branch):
+            if not asset.is_deleted and asset.asset_id not in task.input_asset_refs:
+                task.input_asset_refs.append(asset.asset_id)
+
+    def _append_context_refs(self, task: TaskRecord) -> None:
+        self._append_latest_ref(task, AssetType.brief)
+        self._append_latest_ref(task, AssetType.outline)
+        self._append_latest_refs(task, _BOOTSTRAP_ASSET_TYPES)
+        self._append_latest_ref(task, AssetType.continuity_note, required=False)
+        self._append_latest_ref(task, AssetType.final_chapter, required=False)
 
     def _validate_asset_for_task(self, task: TaskRecord, asset: Asset | None, asset_type: AssetType | None = None) -> Asset | None:
         if asset is None:
@@ -399,26 +443,36 @@ class ClosedLoopService:
             if original_asset_id:
                 self._require_asset_for_task(task, str(original_asset_id), AssetType.chapter, label="Original chapter")
 
-    def _generate_output(self, task: TaskRecord) -> Asset:
+    def _generate_outputs(self, task: TaskRecord) -> list[Asset]:
         project = self.store.get_project(task.project_id)
         if project is None:
             raise ValueError("Project not found")
+        chapter_number = int(task.payload.get("chapter_number", 1))
         if task.task_type == TaskType.brief_generation:
-            return self.generators.generate_brief(project)
-        if task.task_type == TaskType.outline_generation:
+            return [self.generators.generate_brief(project)]
+        if task.task_type == TaskType.asset_bootstrap:
             brief_asset = self._resolve_input(task, AssetType.brief)
             if brief_asset is None:
+                raise ValueError("Brief asset is required before asset bootstrap")
+            return self.generators.generate_asset_bootstrap(project, brief_asset)
+        if task.task_type == TaskType.outline_generation:
+            brief_asset = self._resolve_input(task, AssetType.brief)
+            bootstrap_assets = self._resolve_bootstrap_inputs(task)
+            if brief_asset is None:
                 raise ValueError("Brief asset is required before outline generation")
-            return self.generators.generate_outline(project, brief_asset)
+            if len(bootstrap_assets) < len(_BOOTSTRAP_ASSET_TYPES):
+                raise ValueError("Bootstrap assets are required before outline generation")
+            return [self.generators.generate_outline(project, brief_asset, bootstrap_assets)]
         if task.task_type == TaskType.chapter_generation:
             outline_asset = self._resolve_input(task, AssetType.outline)
             brief_asset = self._resolve_input(task, AssetType.brief)
+            bootstrap_assets = self._resolve_bootstrap_inputs(task)
             if outline_asset is None or brief_asset is None:
                 raise ValueError("Brief and outline assets are required before chapter generation")
-            chapter_number = int(task.payload.get("chapter_number", 1))
+            if len(bootstrap_assets) < len(_BOOTSTRAP_ASSET_TYPES):
+                raise ValueError("Bootstrap assets are required before chapter generation")
             rewrite_context = None
             if task.payload.get("rewrite"):
-                # Gather rewrite context from review issues and original chapter
                 original_asset_id = task.payload.get("original_asset_id")
                 if original_asset_id:
                     original_asset = self._require_asset_for_task(task, str(original_asset_id), AssetType.chapter, label="Original chapter")
@@ -426,28 +480,62 @@ class ClosedLoopService:
                         "chapter_content": original_asset.content,
                         "review_issues": task.payload.get("review_issues", []),
                     }
-            return self.generators.generate_chapter(
-                project, outline_asset, brief_asset, chapter_number,
-                rewrite_context=rewrite_context,
-            )
+            return [self.generators.generate_chapter(project, outline_asset, brief_asset, chapter_number, rewrite_context=rewrite_context, bootstrap_assets=bootstrap_assets)]
+        if task.task_type == TaskType.chapter_validation:
+            chapter_asset = self._resolve_input(task, AssetType.chapter)
+            if chapter_asset is None:
+                raise ValueError("Chapter draft is required before validation")
+            context_assets = self._resolve_context_inputs(task)
+            return [self.generators.generate_validation_report(project, chapter_asset, chapter_number, context_assets)]
+        if task.task_type == TaskType.chapter_audit:
+            chapter_asset = self._resolve_input(task, AssetType.chapter)
+            validation_asset = self._resolve_input(task, AssetType.validation_report)
+            if chapter_asset is None or validation_asset is None:
+                raise ValueError("Chapter draft and validation report are required before audit")
+            context_assets = self._resolve_context_inputs(task)
+            return [self.generators.generate_audit_report(project, chapter_asset, validation_asset, chapter_number, context_assets)]
+        if task.task_type == TaskType.chapter_revision:
+            chapter_asset = self._resolve_input(task, AssetType.chapter)
+            validation_asset = self._resolve_input(task, AssetType.validation_report)
+            audit_asset = self._resolve_input(task, AssetType.audit_report)
+            if chapter_asset is None or validation_asset is None or audit_asset is None:
+                raise ValueError("Chapter draft, validation report, and audit report are required before revision")
+            context_assets = self._resolve_context_inputs(task)
+            return self.generators.generate_revision(project, chapter_asset, validation_asset, audit_asset, chapter_number, context_assets)
+        if task.task_type == TaskType.chapter_reaudit:
+            revised_asset = self._resolve_revision_chapter(task)
+            revision_delta = self._resolve_input(task, AssetType.revision_delta)
+            previous_validation = self._resolve_input(task, AssetType.validation_report)
+            previous_audit = self._resolve_initial_audit(task)
+            if revised_asset is None or revision_delta is None or previous_validation is None or previous_audit is None:
+                raise ValueError("Revised chapter, revision delta, validation report, and audit report are required before re-audit")
+            context_assets = self._resolve_context_inputs(task)
+            return [self.generators.generate_reaudit_report(project, revised_asset, revision_delta, previous_validation, previous_audit, chapter_number, context_assets)]
+        if task.task_type == TaskType.final_save:
+            revised_asset = self._resolve_revision_chapter(task)
+            reaudit_asset = self._resolve_reaudit(task)
+            if revised_asset is None or reaudit_asset is None:
+                raise ValueError("Revised chapter and re-audit report are required before final save")
+            if not reaudit_asset.structured_data.get("passed"):
+                raise ValueError("Re-audit did not pass; final save is blocked")
+            return [self.generators.generate_final_chapter(project, revised_asset, reaudit_asset, chapter_number)]
+        if task.task_type == TaskType.export_candidate:
+            final_chapters = self._resolve_final_chapters(task)
+            if not final_chapters:
+                raise ValueError("Final chapter is required before export candidate")
+            return [self.generators.generate_export_candidate(project, final_chapters, chapter_number)]
         if task.task_type == TaskType.chapter_review:
             chapter_asset = self._resolve_input(task, AssetType.chapter)
             if chapter_asset is None:
                 raise ValueError("Chapter asset is required before review")
-            chapter_number = int(task.payload.get("chapter_number", 1))
-            return self.generators.generate_review(
-                project,
-                chapter_asset,
-                chapter_number,
-                config=task.effective_config_snapshot,
-            )
+            return [self.generators.generate_review(project, chapter_asset, chapter_number, config=task.effective_config_snapshot)]
         if task.task_type == TaskType.spot_fix:
             chapter_asset = self._resolve_input(task, AssetType.chapter)
             if chapter_asset is None:
                 raise ValueError("Chapter asset is required before spot fix")
             paragraph_indices = task.payload.get("paragraph_indices", [])
             fix_instruction = task.payload.get("fix_instruction", "")
-            return self.generators.generate_spot_fix(project, chapter_asset, paragraph_indices, fix_instruction)
+            return [self.generators.generate_spot_fix(project, chapter_asset, paragraph_indices, fix_instruction)]
         raise ValueError(f"Unsupported task type: {task.task_type}")
 
     def _resolve_input(self, task: TaskRecord, asset_type: AssetType) -> Asset | None:
@@ -458,24 +546,77 @@ class ClosedLoopService:
                 return asset
         return None
 
-    def _update_project_state(self, task: TaskRecord, output_asset: Asset) -> None:
+    def _resolve_inputs(self, task: TaskRecord, asset_type: AssetType) -> list[Asset]:
+        assets: list[Asset] = []
+        for ref_id in task.input_asset_refs:
+            asset = self._validate_asset_for_task(task, self.store.get_asset_by_id(ref_id), asset_type)
+            if asset is not None:
+                assets.append(asset)
+        return assets
+
+    def _resolve_bootstrap_inputs(self, task: TaskRecord) -> list[Asset]:
+        return [asset for asset_type in _BOOTSTRAP_ASSET_TYPES if (asset := self._resolve_input(task, asset_type)) is not None]
+
+    def _resolve_context_inputs(self, task: TaskRecord) -> list[Asset]:
+        context_types = (AssetType.brief, AssetType.outline, *_BOOTSTRAP_ASSET_TYPES, AssetType.continuity_note, AssetType.final_chapter)
+        assets: list[Asset] = []
+        seen: set[str] = set()
+        for asset_type in context_types:
+            for asset in self._resolve_inputs(task, asset_type):
+                if asset.asset_id not in seen:
+                    assets.append(asset)
+                    seen.add(asset.asset_id)
+        return assets
+
+    def _resolve_revision_chapter(self, task: TaskRecord) -> Asset | None:
+        delta = self._resolve_input(task, AssetType.revision_delta)
+        if delta is not None:
+            revised_ref = delta.structured_data.get("revised_ref")
+            if isinstance(revised_ref, str) and revised_ref:
+                revised = self._validate_asset_for_task(task, self.store.get_asset_by_id(revised_ref), AssetType.chapter)
+                if revised is not None:
+                    return revised
+        chapters = [asset for asset in self._resolve_inputs(task, AssetType.chapter) if asset.structured_data.get("is_revision") is True]
+        return chapters[-1] if chapters else self._resolve_input(task, AssetType.chapter)
+
+    def _resolve_initial_audit(self, task: TaskRecord) -> Asset | None:
+        audits = [asset for asset in self._resolve_inputs(task, AssetType.audit_report) if asset.structured_data.get("kind") != "re_audit"]
+        return audits[-1] if audits else None
+
+    def _resolve_reaudit(self, task: TaskRecord) -> Asset | None:
+        audits = [asset for asset in self._resolve_inputs(task, AssetType.audit_report) if asset.structured_data.get("kind") == "re_audit"]
+        return audits[-1] if audits else None
+
+    def _resolve_final_chapters(self, task: TaskRecord) -> list[Asset]:
+        return self._resolve_inputs(task, AssetType.final_chapter)
+
+    def _update_project_state(self, task: TaskRecord, output_assets: list[Asset]) -> None:
         project = self.store.get_project(task.project_id)
         if project is None:
             raise ValueError("Project not found")
-        if task.task_type == TaskType.brief_generation:
+        output_asset = output_assets[0] if output_assets else None
+        if task.task_type == TaskType.brief_generation and output_asset is not None:
             project.title = output_asset.structured_data.get("title", project.title)
             project.genre = output_asset.structured_data.get("genre", project.genre)
             project.brief = output_asset.structured_data.get("summary", project.brief)
             project.target_length = output_asset.structured_data.get("target_length", project.target_length)
             project.current_phase = ProjectPhase.briefing
+        elif task.task_type == TaskType.asset_bootstrap:
+            project.current_phase = ProjectPhase.outlining
         elif task.task_type == TaskType.outline_generation:
             project.current_phase = ProjectPhase.outlining
             project.latest_outline_version += 1
         elif task.task_type == TaskType.chapter_generation:
-            chapter_number = int(task.payload.get("chapter_number", 1))
             project.current_phase = ProjectPhase.drafting
+        elif task.task_type in {TaskType.chapter_validation, TaskType.chapter_audit, TaskType.chapter_revision, TaskType.chapter_reaudit}:
+            project.current_phase = ProjectPhase.review
+        elif task.task_type == TaskType.final_save:
+            chapter_number = int(task.payload.get("chapter_number", 1))
+            project.current_phase = ProjectPhase.publishing
             project.latest_chapter_cursor = max(project.latest_chapter_cursor, chapter_number)
-        elif task.task_type == TaskType.chapter_review:
+        elif task.task_type == TaskType.export_candidate:
+            project.current_phase = ProjectPhase.publishing
+        elif task.task_type == TaskType.chapter_review and output_asset is not None:
             project.current_phase = ProjectPhase.review
             self._handle_review_continuation(task, output_asset)
         project.updated_at = utc_now()
@@ -550,7 +691,9 @@ class ClosedLoopService:
 
     def _latest_chapter_number(self, project_id: str, branch: str) -> int:
         latest = 0
-        for asset in self.store.list_assets(project_id, AssetType.chapter, branch=branch):
+        final_chapters = self.store.list_assets(project_id, AssetType.final_chapter, branch=branch)
+        chapter_assets = final_chapters or self.store.list_assets(project_id, AssetType.chapter, branch=branch)
+        for asset in chapter_assets:
             if asset.is_deleted or asset.structured_data.get("is_spot_fix") is True:
                 continue
             value = asset.structured_data.get("chapter_number")
@@ -596,32 +739,43 @@ class ClosedLoopService:
             self.store.save_project(project)
             outline_asset = expanded
 
-        # Queue chapter + review against existing project brief/outline state.
         brief_asset = self.store.get_latest_asset(project_id, AssetType.brief, branch=branch)
         if brief_asset is None:
             raise ValueError("Cannot queue next chapter: no brief exists")
         if outline_asset is None:
             raise ValueError("Cannot queue next chapter: no outline exists")
-        chapter_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.chapter_generation,
-                branch=branch,
-                payload={"chapter_number": start, "branch": branch},
-                input_asset_refs=[outline_asset.asset_id, brief_asset.asset_id],
+        bootstrap_assets = [self.store.get_latest_asset(project_id, asset_type, branch=branch) for asset_type in _BOOTSTRAP_ASSET_TYPES]
+        if any(asset is None for asset in bootstrap_assets):
+            raise ValueError("Cannot queue next chapter: bootstrap assets are incomplete")
+        input_refs = [outline_asset.asset_id, brief_asset.asset_id, *(asset.asset_id for asset in bootstrap_assets if asset is not None)]
+        previous_final = self.store.get_latest_asset(project_id, AssetType.final_chapter, branch=branch)
+        if previous_final is not None:
+            input_refs.append(previous_final.asset_id)
+        task_specs = [
+            TaskType.chapter_generation,
+            TaskType.chapter_validation,
+            TaskType.chapter_audit,
+            TaskType.chapter_revision,
+            TaskType.chapter_reaudit,
+            TaskType.final_save,
+            TaskType.export_candidate,
+        ]
+        tasks: list[TaskRecord] = []
+        parent_task_id: str | None = None
+        for index, task_type in enumerate(task_specs):
+            task = self._accept_and_queue(
+                TaskRecord(
+                    project_id=project_id,
+                    task_type=task_type,
+                    branch=branch,
+                    payload={"chapter_number": start, "branch": branch, "critical_path": True},
+                    parent_task_id=parent_task_id,
+                    input_asset_refs=input_refs[:] if index == 0 else [],
+                )
             )
-        )
-        review_task = self._accept_and_queue(
-            TaskRecord(
-                project_id=project_id,
-                task_type=TaskType.chapter_review,
-                branch=branch,
-                payload={"chapter_number": start, "branch": branch},
-                parent_task_id=chapter_task.task_id,
-                input_asset_refs=[],
-            )
-        )
-        return [chapter_task, review_task]
+            tasks.append(task)
+            parent_task_id = task.task_id
+        return tasks
 
     def queue_chapter_loop(self, project_id: str, *, target_chapter: int | None = None, branch: str = "main") -> list[TaskRecord]:
         """Queue chapters from ``latest_chapter_cursor + 1`` up to *target_chapter*.

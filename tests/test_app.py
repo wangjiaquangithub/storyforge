@@ -9,6 +9,111 @@ from storyforge.api.app import create_app, TokenAuth
 from storyforge.execution.store import InMemoryStoryForgeStore
 
 
+CRITICAL_PATH_TASK_TYPES = [
+    "brief_generation",
+    "asset_bootstrap",
+    "outline_generation",
+    "chapter_generation",
+    "chapter_validation",
+    "chapter_audit",
+    "chapter_revision",
+    "chapter_reaudit",
+    "final_save",
+    "export_candidate",
+]
+
+CRITICAL_PATH_ASSET_TYPES = [
+    "brief",
+    "world",
+    "characters",
+    "rules",
+    "timeline",
+    "style_profile",
+    "foreshadowing",
+    "outline",
+    "chapter",
+    "validation_report",
+    "audit_report",
+    "chapter",
+    "revision_delta",
+    "audit_report",
+    "final_chapter",
+    "export_candidate",
+]
+
+BOOTSTRAP_ASSET_TYPES = [
+    "world",
+    "characters",
+    "rules",
+    "timeline",
+    "style_profile",
+    "foreshadowing",
+]
+
+
+def _create_ready_export_candidate(client: TestClient, project_id: str, chapters: list[tuple[int, str, str]]) -> list[str]:
+    store = client.app.extra["storyforge_store"]
+    return _save_ready_export_candidate(store, project_id, "main", chapters)
+
+
+def _save_ready_export_candidate(store: InMemoryStoryForgeStore, project_id: str, branch: str, chapters: list[tuple[int, str, str]]) -> list[str]:
+    from storyforge.domain.models import Asset, AssetType, TaskRecord, TaskStatus, TaskType
+
+    refs: list[str] = []
+    parent_task_id: str | None = None
+    for chapter_number, title, content in chapters:
+        asset = store.save_asset(
+            Asset(
+                project_id=project_id,
+                asset_type=AssetType.final_chapter,
+                branch=branch,
+                source="system",
+                content=content,
+                structured_data={"chapter_number": chapter_number, "title": title, "finalized": True},
+            )
+        )
+        task = store.create_task(
+            TaskRecord(
+                project_id=project_id,
+                task_type=TaskType.final_save,
+                branch=branch,
+                status=TaskStatus.completed,
+                payload={"chapter_number": chapter_number, "branch": branch},
+                output_refs=[asset.asset_id],
+                parent_task_id=parent_task_id,
+                progress=1.0,
+                current_step="final_save.completed",
+            )
+        )
+        refs.append(asset.asset_id)
+        parent_task_id = task.task_id
+    candidate = store.save_asset(
+        Asset(
+            project_id=project_id,
+            asset_type=AssetType.export_candidate,
+            branch=branch,
+            source="system",
+            content="\n\n".join(content for _, _, content in chapters),
+            structured_data={"ready": True, "final_chapter_refs": refs, "blocked_reason": "", "chapter_number": max(number for number, _, _ in chapters)},
+        )
+    )
+    store.create_task(
+        TaskRecord(
+            project_id=project_id,
+            task_type=TaskType.export_candidate,
+            branch=branch,
+            status=TaskStatus.completed,
+            payload={"chapter_number": max(number for number, _, _ in chapters), "branch": branch},
+            input_asset_refs=refs[:],
+            output_refs=[candidate.asset_id],
+            parent_task_id=parent_task_id,
+            progress=1.0,
+            current_step="export_candidate.completed",
+        )
+    )
+    return refs
+
+
 def test_health() -> None:
     client = TestClient(create_app(store=InMemoryStoryForgeStore()))
 
@@ -142,17 +247,24 @@ def test_first_closed_loop_creates_assets_and_completes_tasks() -> None:
     )
     assert queue_response.status_code == 200
     queued_tasks = queue_response.json()
-    assert [task["task_type"] for task in queued_tasks] == [
+    critical_task_types = [
         "brief_generation",
+        "asset_bootstrap",
         "outline_generation",
         "chapter_generation",
-        "chapter_review",
+        "chapter_validation",
+        "chapter_audit",
+        "chapter_revision",
+        "chapter_reaudit",
+        "final_save",
+        "export_candidate",
     ]
+    assert [task["task_type"] for task in queued_tasks] == critical_task_types
     assert all(task["status"] == "queued" for task in queued_tasks)
 
     drain_response = client.post(f"/api/projects/{project_id}/workers/drain")
     assert drain_response.status_code == 200
-    assert drain_response.json()["processed_count"] == 4
+    assert drain_response.json()["processed_count"] == 10
 
     tasks_response = client.get(f"/api/projects/{project_id}/tasks")
     assert tasks_response.status_code == 200
@@ -160,22 +272,60 @@ def test_first_closed_loop_creates_assets_and_completes_tasks() -> None:
 
     assets_response = client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
-    assert [asset["asset_type"] for asset in assets_response.json()] == [
+    asset_types = [asset["asset_type"] for asset in assets_response.json()]
+    assert asset_types == [
         "brief",
+        "world",
+        "characters",
+        "rules",
+        "timeline",
+        "style_profile",
+        "foreshadowing",
         "outline",
         "chapter",
-        "review_note",
+        "validation_report",
+        "audit_report",
+        "chapter",
+        "revision_delta",
+        "audit_report",
+        "final_chapter",
+        "export_candidate",
     ]
 
-    chapter_response = client.get(f"/api/projects/{project_id}/assets/chapter")
-    assert chapter_response.status_code == 200
-    chapter_asset = chapter_response.json()
+    critical_path_response = client.get(f"/api/projects/{project_id}/critical-path")
+    assert critical_path_response.status_code == 200
+    critical_path = critical_path_response.json()
+    assert [stage["task_type"] for stage in critical_path["critical_path"]] == critical_task_types
+    assert critical_path["bootstrap_complete"] is True
+    assert critical_path["export_ready"] is True
+    assert critical_path["next_step"] == "ready"
+
+    final_response = client.get(f"/api/projects/{project_id}/assets/final_chapter")
+    assert final_response.status_code == 200
+    chapter_asset = final_response.json()
     assert chapter_asset["structured_data"]["chapter_number"] == 1
+    assert "林照" in chapter_asset["content"]
+    assert "顾沉舟" in chapter_asset["content"]
+    assert "【修订强化】" not in chapter_asset["content"]
+    assert "【对应指令】" not in chapter_asset["content"]
+    assert "本章核心" not in chapter_asset["content"]
+    assert "主角" not in chapter_asset["content"]
+    assert "对手" not in chapter_asset["content"]
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={"format": "markdown", "branch": "main"})
+    assert export_response.status_code == 200
+    assert "第 1 章" in export_response.text
+
+    lineage_response = client.get(f"/api/projects/{project_id}/assets/{chapter_asset['asset_id']}/lineage")
+    assert lineage_response.status_code == 200
+    lineage = lineage_response.json()
+    assert lineage["created_by_task"]["task_type"] == "final_save"
+    assert any(asset["asset_type"] == "audit_report" for asset in lineage["frozen_inputs"])
 
     project_state = client.get(f"/api/projects/{project_id}")
     assert project_state.status_code == 200
     assert project_state.json()["latest_chapter_cursor"] == 1
-    assert project_state.json()["current_phase"] == "review"
+    assert project_state.json()["current_phase"] == "publishing"
 
 
 def test_create_asset_manually() -> None:
@@ -506,17 +656,10 @@ def test_export_project_as_markdown_uses_latest_chapter_versions() -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Old chapter one", "structured_data": {"chapter_number": 1, "title": "Arrival"}},
-    )
-    client.put(
-        f"/api/projects/{project_id}/assets/{client.get(f'/api/projects/{project_id}/assets/chapter').json()['asset_id']}",
-        json={"content": "Revised chapter one", "structured_data": {"chapter_number": 1, "title": "Arrival"}},
-    )
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Chapter two body", "structured_data": {"chapter_number": 2, "title": "Debt"}},
+    _create_ready_export_candidate(
+        client,
+        project_id,
+        [(1, "Arrival", "Revised chapter one"), (2, "Debt", "Chapter two body")],
     )
 
     export_response = client.post(f"/api/projects/{project_id}/export", json={})
@@ -525,10 +668,73 @@ def test_export_project_as_markdown_uses_latest_chapter_versions() -> None:
     assert export_response.headers["content-type"].startswith("text/markdown")
     body = export_response.text
     assert "# Relic City" in body
-    assert "## Chapter 1: Arrival" in body
+    assert "## 第 1 章：Arrival" in body
     assert "Revised chapter one" in body
     assert "Old chapter one" not in body
-    assert "## Chapter 2: Debt" in body
+    assert "## 第 2 章：Debt" in body
+
+
+
+def test_export_strips_duplicate_chapter_heading_from_body() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post(
+        "/api/projects",
+        json={"idea": "A finished chapter includes its own title line.", "title": "Clean Export"},
+    )
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    _create_ready_export_candidate(
+        client,
+        project_id,
+        [(1, "危机开场", "   ## 第 1 章：危机开场 ##  \r\n\r\n正文第一段。")],
+    )
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 200
+    assert export_response.text.count("危机开场") == 1
+    assert "## 第 1 章：危机开场\n\n正文第一段。" in export_response.text
+
+
+
+def test_export_preserves_body_whitespace_without_duplicate_heading() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post(
+        "/api/projects",
+        json={"idea": "A finished chapter starts with manuscript indentation.", "title": "Indented Export"},
+    )
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    _create_ready_export_candidate(client, project_id, [(1, "危机开场", "　　正文第一段。\n")])
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 200
+    assert "## 第 1 章：危机开场\n\n　　正文第一段。" in export_response.text
+
+
+
+def test_export_keeps_indented_markdown_like_body_line() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post(
+        "/api/projects",
+        json={"idea": "A manuscript begins with a literal hash line.", "title": "Literal Export"},
+    )
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    _create_ready_export_candidate(client, project_id, [(1, "危机开场", "    ## 第 1 章：危机开场\n正文第一段。")])
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 200
+    assert export_response.text.count("危机开场") == 2
+    assert "    ## 第 1 章：危机开场\n正文第一段。" in export_response.text
 
 
 
@@ -542,10 +748,7 @@ def test_export_project_as_text() -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Text body", "structured_data": {"chapter_number": 1, "title": "Opening"}},
-    )
+    _create_ready_export_candidate(client, project_id, [(1, "Opening", "Text body")])
 
     export_response = client.post(
         f"/api/projects/{project_id}/export",
@@ -555,7 +758,7 @@ def test_export_project_as_text() -> None:
     assert export_response.status_code == 200
     assert export_response.headers["content-type"].startswith("text/plain")
     assert "Plain Export" in export_response.text
-    assert "Chapter 1: Opening" in export_response.text
+    assert "第 1 章：Opening" in export_response.text
     assert "Text body" in export_response.text
 
 
@@ -570,10 +773,7 @@ def test_export_project_as_qidian_text() -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Qidian body", "structured_data": {"chapter_number": 1, "title": "Awakening"}},
-    )
+    _create_ready_export_candidate(client, project_id, [(1, "Awakening", "Qidian body")])
 
     export_response = client.post(
         f"/api/projects/{project_id}/export",
@@ -599,10 +799,7 @@ def test_export_project_as_jinjiang_text() -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Jinjiang body", "structured_data": {"chapter_number": 1, "title": "First Snow"}},
-    )
+    _create_ready_export_candidate(client, project_id, [(1, "First Snow", "Jinjiang body")])
 
     export_response = client.post(
         f"/api/projects/{project_id}/export",
@@ -628,10 +825,7 @@ def test_export_sanitizes_download_filename() -> None:
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Safe body", "structured_data": {"chapter_number": 1, "title": "Opening"}},
-    )
+    _create_ready_export_candidate(client, project_id, [(1, "Opening", "Safe body")])
 
     export_response = client.post(f"/api/projects/{project_id}/export", json={})
 
@@ -640,6 +834,46 @@ def test_export_sanitizes_download_filename() -> None:
     assert "\r" not in disposition
     assert "\n" not in disposition
     assert 'filename="Bad_Title_X-Test_1.md"' in disposition
+
+
+
+def test_export_rejects_draft_without_ready_candidate() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post("/api/projects", json={"idea": "draft only", "title": "Draft Book"})
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+    draft_response = client.post(
+        f"/api/projects/{project_id}/assets",
+        json={"asset_type": "chapter", "content": "Draft body", "structured_data": {"chapter_number": 1, "title": "Draft"}},
+    )
+    assert draft_response.status_code == 200
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 409
+    assert "尚未生成导出候选" in export_response.text
+
+
+
+def test_system_gate_assets_cannot_be_created_manually() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post("/api/projects", json={"idea": "manual bypass", "title": "Gate Book"})
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    final_response = client.post(
+        f"/api/projects/{project_id}/assets",
+        json={"asset_type": "final_chapter", "content": "Manual final", "structured_data": {"chapter_number": 1}},
+    )
+    candidate_response = client.post(
+        f"/api/projects/{project_id}/assets",
+        json={"asset_type": "export_candidate", "content": "Manual export", "structured_data": {"ready": True, "final_chapter_refs": []}},
+    )
+
+    assert final_response.status_code == 403
+    assert candidate_response.status_code == 403
 
 
 
@@ -659,13 +893,53 @@ def test_export_rejects_invalid_format() -> None:
 
 
 
-def test_export_skips_invalid_chapter_number_metadata() -> None:
+def test_export_rejects_polluted_final_chapter() -> None:
+    client = TestClient(create_app(store=InMemoryStoryForgeStore()))
+
+    project_response = client.post("/api/projects", json={"idea": "polluted final", "title": "Polluted"})
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    _create_ready_export_candidate(client, project_id, [(1, "Opening", "【修订强化】主角按编辑反馈补强。")])
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 409
+    assert "内部写作痕迹" in export_response.text
+
+
+
+def test_export_rejects_duplicate_final_chapter_refs() -> None:
+    from storyforge.domain.models import AssetType
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project_response = client.post("/api/projects", json={"idea": "duplicate final", "title": "Duplicate"})
+    assert project_response.status_code == 200
+    project_id = project_response.json()["project_id"]
+
+    first_ref = _save_ready_export_candidate(store, project_id, "main", [(1, "One", "First final")])[0]
+    second_ref = _save_ready_export_candidate(store, project_id, "main", [(1, "One again", "Second final")])[0]
+    candidate = store.get_latest_asset(project_id, AssetType.export_candidate)
+    assert candidate is not None
+    candidate.structured_data["final_chapter_refs"] = [first_ref, second_ref]
+    candidate.structured_data["chapter_number"] = 1
+    store.save_asset(candidate)
+
+    export_response = client.post(f"/api/projects/{project_id}/export", json={})
+
+    assert export_response.status_code == 409
+    assert "重复定稿章节：1" in export_response.text
+
+
+
+def test_export_rejects_non_contiguous_final_chapters() -> None:
     client = TestClient(create_app(store=InMemoryStoryForgeStore()))
 
     project_response = client.post("/api/projects", json={"idea": "bad metadata", "title": "Safe Export"})
     assert project_response.status_code == 200
     project_id = project_response.json()["project_id"]
 
+    _create_ready_export_candidate(client, project_id, [(2, "Valid", "Good chapter")])
     client.post(
         f"/api/projects/{project_id}/assets",
         json={"asset_type": "chapter", "content": "Broken string chapter", "structured_data": {"chapter_number": "one", "title": "Broken String"}},
@@ -682,15 +956,12 @@ def test_export_skips_invalid_chapter_number_metadata() -> None:
         f"/api/projects/{project_id}/assets",
         json={"asset_type": "chapter", "content": "Broken unicode chapter", "structured_data": {"chapter_number": "²", "title": "Broken Unicode"}},
     )
-    client.post(
-        f"/api/projects/{project_id}/assets",
-        json={"asset_type": "chapter", "content": "Good chapter", "structured_data": {"chapter_number": 2, "title": "Valid"}},
-    )
 
     export_response = client.post(f"/api/projects/{project_id}/export", json={})
 
-    assert export_response.status_code == 200
-    assert "Good chapter" in export_response.text
+    assert export_response.status_code == 409
+    assert "缺少连续定稿章节：1" in export_response.text
+    assert "Good chapter" not in export_response.text
     assert "Broken string chapter" not in export_response.text
     assert "Broken bool chapter" not in export_response.text
     assert "Broken float chapter" not in export_response.text
@@ -1375,17 +1646,12 @@ def test_sqlite_store_persists_across_app_restarts(tmp_path: Path) -> None:
 
     tasks_response = second_client.get(f"/api/projects/{project_id}/tasks")
     assert tasks_response.status_code == 200
-    assert len(tasks_response.json()) == 4
+    assert [task["task_type"] for task in tasks_response.json()] == CRITICAL_PATH_TASK_TYPES
     assert all(task["status"] == "completed" for task in tasks_response.json())
 
     assets_response = second_client.get(f"/api/projects/{project_id}/assets")
     assert assets_response.status_code == 200
-    assert [asset["asset_type"] for asset in assets_response.json()] == [
-        "brief",
-        "outline",
-        "chapter",
-        "review_note",
-    ]
+    assert [asset["asset_type"] for asset in assets_response.json()] == CRITICAL_PATH_ASSET_TYPES
 
     events_response = second_client.get(f"/api/tasks/{tasks_response.json()[0]['task_id']}/events")
     assert events_response.status_code == 200
@@ -2536,12 +2802,7 @@ def test_first_loop_outputs_are_isolated_by_branch() -> None:
     assert response.status_code == 200
     assert {task["branch"] for task in response.json()} == {"alt"}
     assert {asset.asset_type.value for asset in store.list_assets(project.project_id, branch="main")} == set()
-    assert [asset.asset_type.value for asset in store.list_assets(project.project_id, branch="alt")] == [
-        "brief",
-        "outline",
-        "chapter",
-        "review_note",
-    ]
+    assert [asset.asset_type.value for asset in store.list_assets(project.project_id, branch="alt")] == CRITICAL_PATH_ASSET_TYPES
 
     alt_tasks = store.list_tasks(project.project_id, branch="alt")
     alt_asset_ids = {asset.asset_id for asset in store.list_assets(project.project_id, branch="alt")}
@@ -2768,9 +3029,12 @@ def test_asset_versions_diff_and_rollback_are_branch_scoped() -> None:
     client = TestClient(create_app(store=store))
     project = store.create_project(Project(idea="version branch", branches=["main", "alt"]))
     main_v1 = store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="main", content="Main old\n"))
-    store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="main", content="Main new\n"))
+    client.put(f"/api/projects/{project.project_id}/assets/{main_v1.asset_id}", json={"branch": "main", "content": "Main new\n"})
     alt_v1 = store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="Alt old\n"))
-    alt_v2 = store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="Alt new\n"))
+    alt_v2_response = client.put(f"/api/projects/{project.project_id}/assets/{alt_v1.asset_id}", json={"branch": "alt", "content": "Alt new\n"})
+    assert alt_v2_response.status_code == 200
+    alt_v2 = store.get_asset_by_id(alt_v2_response.json()["asset_id"])
+    assert alt_v2 is not None
 
     versions = client.get(f"/api/projects/{project.project_id}/assets/chapter/versions?branch=alt")
     assert versions.status_code == 200
@@ -2804,24 +3068,8 @@ def test_export_and_chapters_are_branch_scoped() -> None:
     store = InMemoryStoryForgeStore()
     client = TestClient(create_app(store=store))
     project = store.create_project(Project(idea="branch export", title="Branch Book", branches=["main", "alt"]))
-    main = store.save_asset(
-        Asset(
-            project_id=project.project_id,
-            asset_type=AssetType.chapter,
-            branch="main",
-            content="Main body",
-            structured_data={"chapter_number": 1, "title": "Main"},
-        )
-    )
-    store.save_asset(
-        Asset(
-            project_id=project.project_id,
-            asset_type=AssetType.chapter,
-            branch="alt",
-            content="Alt body",
-            structured_data={"chapter_number": 1, "title": "Alt"},
-        )
-    )
+    main_ref = _save_ready_export_candidate(store, project.project_id, "main", [(1, "Main", "Main body")])[0]
+    _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Alt", "Alt body")])
 
     export_response = client.post(f"/api/projects/{project.project_id}/export", json={"branch": "main"})
     chapters_response = client.get(f"/api/projects/{project.project_id}/chapters?branch=main")
@@ -2831,7 +3079,7 @@ def test_export_and_chapters_are_branch_scoped() -> None:
     assert "Alt body" not in export_response.text
     assert chapters_response.status_code == 200
     assert chapters_response.json() == [
-        {"chapter_number": 1, "title": "Main", "status": "pending", "asset_id": main.asset_id, "review_approved": None}
+        {"chapter_number": 1, "title": "Main", "status": "final", "asset_id": main_ref, "review_approved": True}
     ]
 
 
@@ -2842,19 +3090,11 @@ def test_export_and_chapters_ignore_deleted_assets() -> None:
     store = InMemoryStoryForgeStore()
     client = TestClient(create_app(store=store))
     project = store.create_project(Project(idea="deleted export", title="Visible Book", branches=["main", "alt"]))
-    visible = store.save_asset(
-        Asset(
-            project_id=project.project_id,
-            asset_type=AssetType.chapter,
-            branch="main",
-            content="Visible body",
-            structured_data={"chapter_number": 1, "title": "Visible"},
-        )
-    )
+    visible_ref = _save_ready_export_candidate(store, project.project_id, "main", [(1, "Visible", "Visible body")])[0]
     store.save_asset(
         Asset(
             project_id=project.project_id,
-            asset_type=AssetType.chapter,
+            asset_type=AssetType.final_chapter,
             branch="main",
             content="Deleted body",
             structured_data={"chapter_number": 2, "title": "Deleted"},
@@ -2865,9 +3105,9 @@ def test_export_and_chapters_ignore_deleted_assets() -> None:
     store.save_asset(
         Asset(
             project_id=project.project_id,
-            asset_type=AssetType.review_note,
+            asset_type=AssetType.export_candidate,
             branch="main",
-            structured_data={"chapter_number": 1, "approved": False},
+            structured_data={"ready": False, "final_chapter_refs": [], "blocked_reason": "deleted candidate"},
             is_deleted=True,
             deleted_at=utc_now(),
         )
@@ -2881,7 +3121,7 @@ def test_export_and_chapters_ignore_deleted_assets() -> None:
     assert "Deleted body" not in export_response.text
     assert chapters_response.status_code == 200
     assert chapters_response.json() == [
-        {"chapter_number": 1, "title": "Visible", "status": "pending", "asset_id": visible.asset_id, "review_approved": None}
+        {"chapter_number": 1, "title": "Visible", "status": "final", "asset_id": visible_ref, "review_approved": True}
     ]
 
 
@@ -3056,7 +3296,8 @@ def test_deleting_latest_asset_hides_entire_lineage_from_active_surfaces() -> No
     assert latest_response.status_code == 404
     assert chapters_response.status_code == 200
     assert chapters_response.json() == []
-    assert export_response.status_code == 200
+    assert export_response.status_code == 409
+    assert "尚未生成导出候选" in export_response.text
     assert "Old body" not in export_response.text
     assert "Latest body" not in export_response.text
     assert versions_response.json() == []
@@ -3103,6 +3344,7 @@ def test_deleting_accepted_spot_fix_hides_original_lineage() -> None:
     assert delete_response.status_code == 200
     assert latest_response.status_code == 404
     assert chapters_response.json() == []
+    assert export_response.status_code == 409
     assert "Original paragraph" not in export_response.text
     assert "Fixed paragraph" not in export_response.text
     assert assets_response.json() == []
@@ -3786,6 +4028,202 @@ def test_spot_fix_reject_does_not_change_latest_official_chapter() -> None:
     assert latest.json()["content"] == "A.\n\nB."
 
 
+def test_export_rejects_candidate_that_references_superseded_final_chapter() -> None:
+    from storyforge.domain.models import Asset, AssetType, Project, TaskRecord, TaskStatus, TaskType
+    from storyforge.execution.store import InMemoryStoryForgeStore
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project = store.create_project(Project(idea="superseded final export", branches=["main", "alt"]))
+    source = store.save_asset(
+        Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="source", structured_data={"chapter_number": 1})
+    )
+    old_final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Old final", "Old final body")])[0]
+    old_final = store.get_asset_by_id(old_final_ref)
+    assert old_final is not None
+    old_final.structured_data["source_chapter_ref"] = source.asset_id
+    store.save_asset(old_final)
+    new_final = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.final_chapter,
+            branch="alt",
+            source="system",
+            content="New final body",
+            structured_data={"chapter_number": 1, "title": "New final", "finalized": True, "source_chapter_ref": source.asset_id},
+        )
+    )
+    store.create_task(
+        TaskRecord(
+            project_id=project.project_id,
+            task_type=TaskType.final_save,
+            branch="alt",
+            status=TaskStatus.completed,
+            output_refs=[new_final.asset_id],
+            payload={"chapter_number": 1, "branch": "alt"},
+            progress=1.0,
+        )
+    )
+
+    export_response = client.post(f"/api/projects/{project.project_id}/export", json={"format": "markdown", "branch": "alt"})
+
+    assert export_response.status_code == 409
+    assert "更新的定稿章节" in export_response.text
+
+
+def test_export_rejects_stale_candidate_after_accepted_spot_fix() -> None:
+    from storyforge.domain.models import Asset, AssetType, Project
+    from storyforge.execution.store import InMemoryStoryForgeStore
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project = store.create_project(Project(idea="stale export after spot fix", branches=["main", "alt"]))
+    original = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            branch="alt",
+            content="Old draft body",
+            structured_data={"chapter_number": 1},
+        )
+    )
+    final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Final", "Old final body")])[0]
+    final = store.get_asset_by_id(final_ref)
+    assert final is not None
+    final.structured_data["source_chapter_ref"] = original.asset_id
+    store.save_asset(final)
+    candidate = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            branch="alt",
+            content="Accepted spot-fix body",
+            structured_data={
+                "chapter_number": 1,
+                "is_spot_fix": True,
+                "original_asset_id": original.asset_id,
+                "spot_fix_paragraphs": [0],
+            },
+        )
+    )
+
+    accept_response = client.post(f"/api/projects/{project.project_id}/spot-fix/{candidate.asset_id}/accept?branch=alt")
+    export_response = client.post(f"/api/projects/{project.project_id}/export", json={"format": "markdown", "branch": "alt"})
+
+    assert accept_response.status_code == 200
+    assert export_response.status_code == 409
+    assert "定点修复" in export_response.text
+
+
+def test_export_stays_blocked_after_deleting_accepted_spot_fix() -> None:
+    from storyforge.domain.models import Asset, AssetType, Project
+    from storyforge.execution.store import InMemoryStoryForgeStore
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project = store.create_project(Project(idea="deleted accepted spot fix", branches=["main", "alt"]))
+    original = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            branch="alt",
+            content="Old draft body",
+            structured_data={"chapter_number": 1},
+        )
+    )
+    final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Final", "Old final body")])[0]
+    final = store.get_asset_by_id(final_ref)
+    assert final is not None
+    final.structured_data["source_chapter_ref"] = original.asset_id
+    store.save_asset(final)
+    candidate = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            branch="alt",
+            content="Accepted spot-fix body",
+            structured_data={
+                "chapter_number": 1,
+                "is_spot_fix": True,
+                "original_asset_id": original.asset_id,
+                "spot_fix_paragraphs": [0],
+            },
+        )
+    )
+    accepted_response = client.post(f"/api/projects/{project.project_id}/spot-fix/{candidate.asset_id}/accept?branch=alt")
+    accepted_id = accepted_response.json()["asset_id"]
+
+    delete_response = client.delete(f"/api/projects/{project.project_id}/assets/{accepted_id}?branch=alt")
+    export_response = client.post(f"/api/projects/{project.project_id}/export", json={"format": "markdown", "branch": "alt"})
+
+    assert accepted_response.status_code == 200
+    assert delete_response.status_code == 200
+    assert export_response.status_code == 409
+    assert "定点修复" in export_response.text
+
+
+def test_export_blocks_when_final_source_accepted_spot_fix_is_deleted() -> None:
+    from storyforge.domain.models import Asset, AssetType, Project
+    from storyforge.execution.store import InMemoryStoryForgeStore
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project = store.create_project(Project(idea="deleted final source", branches=["main", "alt"]))
+    original = store.save_asset(
+        Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="old", structured_data={"chapter_number": 1})
+    )
+    candidate = store.save_asset(
+        Asset(
+            project_id=project.project_id,
+            asset_type=AssetType.chapter,
+            branch="alt",
+            content="accepted source",
+            structured_data={"chapter_number": 1, "is_spot_fix": True, "original_asset_id": original.asset_id, "spot_fix_paragraphs": [0]},
+        )
+    )
+    accepted_response = client.post(f"/api/projects/{project.project_id}/spot-fix/{candidate.asset_id}/accept?branch=alt")
+    accepted_id = accepted_response.json()["asset_id"]
+    final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Final", "Final from accepted source")])[0]
+    final = store.get_asset_by_id(final_ref)
+    assert final is not None
+    final.structured_data["source_chapter_ref"] = accepted_id
+    store.save_asset(final)
+
+    delete_response = client.delete(f"/api/projects/{project.project_id}/assets/{accepted_id}?branch=alt")
+    export_response = client.post(f"/api/projects/{project.project_id}/export", json={"format": "markdown", "branch": "alt"})
+
+    assert accepted_response.status_code == 200
+    assert delete_response.status_code == 200
+    assert export_response.status_code == 409
+    assert "定点修复" in export_response.text
+
+
+def test_deleted_unaccepted_chapter_version_does_not_stale_block_export() -> None:
+    from storyforge.domain.models import Asset, AssetType, Project
+    from storyforge.execution.store import InMemoryStoryForgeStore
+
+    store = InMemoryStoryForgeStore()
+    client = TestClient(create_app(store=store))
+    project = store.create_project(Project(idea="deleted draft not stale", branches=["main", "alt"]))
+    source = store.save_asset(
+        Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="source", structured_data={"chapter_number": 1})
+    )
+    final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Final", "Final body")])[0]
+    final = store.get_asset_by_id(final_ref)
+    assert final is not None
+    final.structured_data["source_chapter_ref"] = source.asset_id
+    store.save_asset(final)
+    deleted_draft = store.save_asset(
+        Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="deleted draft", structured_data={"chapter_number": 1})
+    )
+
+    client.delete(f"/api/projects/{project.project_id}/assets/{deleted_draft.asset_id}?branch=alt")
+    export_response = client.post(f"/api/projects/{project.project_id}/export", json={"format": "markdown", "branch": "alt"})
+
+    assert export_response.status_code == 200
+    assert "Final body" in export_response.text
+
+
 def test_spot_fix_accept_creates_new_official_version_and_is_branch_scoped() -> None:
     from storyforge.domain.models import Asset, AssetType, Project
     from storyforge.execution.store import InMemoryStoryForgeStore
@@ -4134,22 +4572,40 @@ def test_next_chapter_uses_branch_scoped_latest_chapter() -> None:
             structured_data={"chapters": [{"chapter_number": 1}, {"chapter_number": 2}]},
         )
     )
-    store.save_asset(
+    previous_final = store.save_asset(
         Asset(
             project_id=project.project_id,
-            asset_type=AssetType.chapter,
+            asset_type=AssetType.final_chapter,
             branch="alt",
             content="alt c1",
             structured_data={"chapter_number": 1},
         )
     )
+    for asset_type in BOOTSTRAP_ASSET_TYPES:
+        store.save_asset(
+            Asset(
+                project_id=project.project_id,
+                asset_type=AssetType(asset_type),
+                branch="alt",
+                content=f"{asset_type} context",
+            )
+        )
 
     response = client.post(f"/api/projects/{project.project_id}/runs/next-chapter", json={"branch": "alt"})
 
     assert response.status_code == 200
     tasks = response.json()
-    assert [task["payload"]["chapter_number"] for task in tasks] == [2, 2]
-    assert [task["task_type"] for task in tasks] == ["chapter_generation", "chapter_review"]
+    assert [task["payload"]["chapter_number"] for task in tasks] == [2, 2, 2, 2, 2, 2, 2]
+    assert [task["task_type"] for task in tasks] == [
+        "chapter_generation",
+        "chapter_validation",
+        "chapter_audit",
+        "chapter_revision",
+        "chapter_reaudit",
+        "final_save",
+        "export_candidate",
+    ]
+    assert previous_final.asset_id in tasks[0]["input_asset_refs"]
     assert all(task["branch"] == "alt" for task in tasks)
 
 
@@ -4268,7 +4724,7 @@ def test_branch_read_endpoints_require_authorized_token_when_collaborators_exist
     store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="main", content="main", structured_data={"chapter_number": 1}))
     store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.review_note, branch="alt", content="review", structured_data={"chapter_number": 1}))
     first_alt_chapter = store.save_asset(Asset(project_id=project.project_id, asset_type=AssetType.chapter, branch="alt", content="alt v1", structured_data={"chapter_number": 1}))
-    store.save_asset(
+    latest_alt_chapter = store.save_asset(
         Asset(
             project_id=project.project_id,
             asset_type=AssetType.chapter,
@@ -4278,6 +4734,11 @@ def test_branch_read_endpoints_require_authorized_token_when_collaborators_exist
         ),
         lineage_origin_id=first_alt_chapter.asset_id,
     )
+    final_ref = _save_ready_export_candidate(store, project.project_id, "alt", [(1, "Alt final", "alt final")])[0]
+    final = store.get_asset_by_id(final_ref)
+    assert final is not None
+    final.structured_data["source_chapter_ref"] = latest_alt_chapter.asset_id
+    store.save_asset(final)
     store.create_task(TaskRecord(project_id=project.project_id, task_type=TaskType.brief_generation, branch="alt"))
 
     unauthorized_responses = [
@@ -4330,7 +4791,7 @@ def test_style_profile_put_locks_branch_scoped_overrides() -> None:
             "branch": "alt",
             "voice": "locked close third",
             "strengths": ["slow dread"],
-            "avoid": ["flat exposition"],
+            "avoid": ["平铺直叙"],
             "sensory_keywords": ["ash", "rain"],
             "locked_fields": ["voice", "avoid", "sensory_keywords"],
         },
@@ -4343,12 +4804,12 @@ def test_style_profile_put_locks_branch_scoped_overrides() -> None:
     assert saved.json()["locked_fields"] == ["voice", "avoid", "sensory_keywords"]
     assert alt_profile.status_code == 200
     assert alt_profile.json()["voice"] == "locked close third"
-    assert alt_profile.json()["avoid"] == ["flat exposition"]
+    assert alt_profile.json()["avoid"] == ["平铺直叙"]
     assert alt_profile.json()["sensory_keywords"] == ["ash", "rain"]
-    assert alt_profile.json()["strengths"] == ["sensory detail"]
+    assert alt_profile.json()["strengths"] == ["感官细节突出"]
     assert alt_profile.json()["sample_count"] == 1
     assert main_profile.json()["voice"] != "locked close third"
-    assert "rust" in main_profile.json()["sensory_keywords"]
+    assert "锈迹" in main_profile.json()["sensory_keywords"]
 
 
 def test_style_profile_get_defaults_to_main_branch() -> None:
@@ -4378,7 +4839,7 @@ def test_style_profile_get_defaults_to_main_branch() -> None:
 
     assert response.status_code == 200
     assert response.json()["voice"] != "alt locked voice"
-    assert "rust" in response.json()["sensory_keywords"]
+    assert "锈迹" in response.json()["sensory_keywords"]
     assert "ash" not in response.json()["sensory_keywords"]
 
 
@@ -4797,6 +5258,6 @@ def test_review_uses_only_current_branch_foreshadowing_overdue_items() -> None:
     alt_review = generator.generate_review(project, alt_chapter, 4)
 
     assert "foreshadowing:overdue" in main_review.structured_data["failed_checks"]
-    assert "Foreshadowing overdue: Main clue" in main_review.structured_data["issues"]
+    assert "伏笔逾期未回收：Main clue" in main_review.structured_data["issues"]
     assert "foreshadowing:overdue" not in alt_review.structured_data["failed_checks"]
     assert "Main clue" not in " ".join(alt_review.structured_data["issues"])
